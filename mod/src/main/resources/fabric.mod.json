@@ -1,0 +1,24 @@
+{
+  "schemaVersion": 1,
+  "id": "mcver",
+  "version": "${version}",
+  "name": "Water Craft Launcher",
+  "description": "手持「Water Craft Launcher」右键，在游戏内下载、安装并启动其他 Minecraft 版本（含 Fabric / Quilt / Forge / NeoForge / Iris / OptiFine），支持多游戏目录与自定义下载源。",
+  "authors": [],
+  "license": "MIT",
+  "environment": "client",
+  "entrypoints": {
+    "main": [
+      "dev.mcver.McVerMod"
+    ],
+    "client": [
+      "dev.mcver.McVerClient"
+    ]
+  },
+  "depends": {
+    "fabricloader": ">=0.16.0",
+    "minecraft": ">=1.21",
+    "java": ">=21",
+    "fabric-api": "*"
+  }
+}

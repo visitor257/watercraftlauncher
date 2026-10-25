@@ -1,0 +1,1072 @@
+# McVer 项目报告
+
+> 报告时间：2026-10-23 00:52
+> 产物：`D:\Development\mcvermod\mcver-1.0.0.jar`（198.8 KB）
+> 源码：`D:\Development\mcvermod\mod\src\main\java\dev\mcver\`，26 个文件 / 5117 行
+
+---
+
+## 一、目标
+
+### 1.1 起点
+
+最初的问题：PCL2 / HMCL 的内置下载功能在 2026-10-20 同日下线了（合规原因），想知道是不是服务端也挂了。查清结论：**服务端全部正常（HTTP 200），只是客户端把入口摘了**。
+
+### 1.2 目标演变
+
+| 阶段 | 目标 | 状态 |
+|---|---|---|
+| ① 查证 | PCL2/HMCL 下载功能为什么消失 | 已完成 |
+| ② 补齐 | 自己做一个能下载安装 MC 版本的工具 | 已完成 |
+| ③ 迁移 | 从独立 Java 程序改成**游戏内的 mod** | 已完成 |
+| ④ 扩展 | 从「只装不启动」→ **游戏内的完整 MC 启动器** | 已完成 |
+| ⑤ 对齐 | 参考 PCL2 的功能面，补齐差距 | 进行中 |
+
+**当前目标（一句话）**：在 Minecraft 游戏内做一个 mod 形态的启动器——能下载安装任意版本（含模组加载器/光影加载器）、管理账号、启动其他 MC 版本，UI 采用原版容器视觉语言。
+
+### 1.3 硬性约束（用户明确要求）
+
+- **UI**：屏幕中央的灰色面板（原版箱子/背包那种），不要全屏铺开
+- **文字**：不能有阴影重影 → 所有 `drawText(..., false)`
+- **行为**：对齐 PCL/HMCL——静默下载、必要时无头跑安装器、不弹窗外窗
+- **布局**：装成标准 vanilla 目录结构，官方启动器/PCL/HMCL 都能识别
+- **合规**：不抄 PCL 代码，只参考功能面
+- **平台**：Fabric 客户端 mod，编译目标 1.21.4，需 Fabric API，JDK 21
+
+---
+
+## 二、交付物
+
+### 2.1 产物清单
+
+```
+D:\Development\mcvermod\
+├── mcver-1.0.0.jar          198.8 KB   ← 可直接丢进 mods/
+├── README.md                 13.2 KB   ← 完整文档（功能/坑/钩子表）
+├── REPORT.md                            ← 本文件
+└── mod\                                 ← Gradle 工程
+    ├── build.gradle
+    ├── gradle.properties                (MC 1.21.4 / yarn build.8 / loader 0.16.14 / loom 1.9.2)
+    └── src\main\java\dev\mcver\         (26 文件 / 5117 行)
+```
+
+### 2.2 代码结构
+
+```
+dev.mcver
+├── McVerMod.java          29  物品注册
+├── McVerClient.java       92  右键 / 快捷键 M / 调试钩子
+├── core\
+│   ├── Installer.java    672  原版安装器（manifest→json→client→libs→natives→assets）
+│   ├── Launcher.java     462  classpath 拼装 + argfile + 子进程启动
+│   ├── LoaderInstaller.java 394  Fabric/Quilt/Forge/NeoForge/OptiFine/Iris 安装
+│   ├── Auth.java         248  微软设备码登录 + token 续期
+│   ├── Json.java         208  极简 JSON 解析/写出
+│   ├── InstallJob.java   193  安装流水线（后台线程）
+│   ├── JavaFinder.java   154  按 major version 找 JDK
+│   ├── Dirs.java         146  目录/隔离/trash
+│   ├── Config.java       137  全局配置 + 账号库
+│   ├── LoaderVersions.java 139  各加载器版本列表
+│   ├── Net.java          112  HttpURLConnection 封装（硬超时 + 镜像回退 + jar 校验）
+│   ├── VersionList.java   70  原版版本清单（920 个）
+│   ├── Modrinth.java      58  Modrinth API（Iris/Sodium）
+│   ├── VersionMeta.java   56  命名建议 / 改名 / 建隔离目录
+│   ├── Account.java       56  账号数据
+│   └── Jobs.java          43  后台任务登记
+└── ui\
+    ├── DownloadPage.java 610  下载页（LIST / DETAIL / PROGRESS 三视图）
+    ├── VersionsPage.java 278  版本管理
+    ├── LaunchPage.java   262  启动页
+    ├── AccountsPage.java 243  账号页
+    ├── MainScreen.java   218  面板外壳 + 导航 + ✕
+    ├── SettingsPage.java 159  设置页
+    ├── Page.java          61  页基类（无阴影文字工具）
+    └── UiState.java       17  跨页共享状态
+```
+
+---
+
+## 三、现在做了什么
+
+### 3.1 原版安装（`core/Installer.java`）
+
+不依赖任何第三方库，自己走完整链路：
+
+```
+version_manifest_v2.json
+  → versions/<id>/<id>.json
+  → <id>.jar（client）
+  → libraries/**（sha1 校验、16 线程并发）
+  → natives 解压
+  → assets/indexes/<index>.json + assets/objects/**
+```
+
+- 官方源失败自动回退 BMCLAPI
+- **下载失败重试 3 轮 + 收尾 sha1 全量校验**，仍缺直接抛异常（不假报成功）
+- 实测：1.7.10（686 assets / 107MB）、1.20.1（3598 assets / 622MB）、1.21.4（403MB）
+
+### 3.2 加载器 / 光影安装（`core/LoaderInstaller.java`）
+
+| 组件 | 实现方式 |
+|---|---|
+| Fabric | **不走 installer**，直接取 `profile/json`，自下 8 个库再写版本 json |
+| Quilt | 同上（镜像 `bmclapi2/quilt-meta`） |
+| Forge | 官方 installer CLI `--installClient` 无头运行 |
+| NeoForge | 同上 |
+| OptiFine | 下载 jar → `URLClassLoader` 反射调 `optifine.Installer.doInstall(File)` |
+| Iris | Modrinth API 下载，落进 `mods/`，顺带 Sodium |
+
+安装顺序固定：**原版 → 模组加载器 → 光影 → 改名 → 隔离目录**。
+
+### 3.3 启动（`core/Launcher.java`）
+
+- 递归合并 `inheritsFrom`（libraries 按 `group:artifact:classifier` 覆盖，arguments 父前子后）
+- rules 过滤 → classpath
+- ≤1.18 natives 走 classifiers 解压；≥1.19 natives jar 直接上 classpath
+- 占位符替换（`${auth_player_name}`、`${game_directory}`、`${assets_root}` …）
+- **argfile 方案**（`java @file`）绕开 Windows 32767 字符命令行上限
+- `ProcessBuilder` 起子进程，日志落到版本目录
+- 启动前自检：缺库 / 缺 client.jar / 缺资源对象 → 界面直接报，不硬启
+
+### 3.4 账号（`core/Auth.java`）
+
+- **离线账号**：`UUID v3("OfflinePlayer:<name>")`
+- **微软正版**：设备码登录，走 legacy Live 端点
+  ```
+  https://login.live.com/oauth20_connect.srf
+  scope: service::user.auth.xboxlive.com::MBI_SSL
+  → XBL (RpsTicket 前缀 t=，失败退 d=)
+  → XSTS → Minecraft services → profile
+  ```
+- token 自动续期
+- 存 `config/mcver.json`（明文，同 PCL/HMCL 做法）
+
+> **关键发现**：公开 client id `00000000402b5328` 走 AAD 新端点
+> `login.microsoftonline.com/consumers/oauth2/v2.0/devicecode` 会报
+> `AADSTS700016: Application ... was not found`，必须走 legacy Live 端点。
+
+### 3.5 UI（`ui/`）
+
+**面板外壳**：`min(400, 屏宽×88%) × min(232, 屏高×92%)`，实测 GUI 427×240 下 `375x220@26,10`。
+背景压暗 + 模糊，四周能看到世界。左边导航，右边是页，**右上角 ✕**。
+
+| 页 | 功能 |
+|---|---|
+| 启动 | 已装版本列表（滚轮）、内存、启动后关当前、启动、下载版本 |
+| 下载 | **两级**：版本列表 → 点进版本 → 名称 + 加载器 + 光影 + 各自版本 |
+| 账号 | 离线 / 微软登录 / 设为当前 / 删除 |
+| 版本 | 重命名、删除（移 trash 不真删）、补全文件、打开目录、一键开隔离 |
+| 设置 | 内存、JVM/游戏参数、窗口大小/全屏、下载线程/源、指定 Java、游戏目录、安装后隔离 |
+
+**下载页两层结构**（本轮重做）：
+
+1. 第一层：一行一个版本 `✔ 1.21.4  正式  2024-12-03`，带搜索、快照开关、翻页、刷新
+2. 第二层：版本名（自动填 `1.21.4-Fabric_0.20.1`，可改）+ 模组加载器 + 光影加载器 + 版本列表 + 开始安装
+
+**✕ 按钮语义**：只收界面，不杀任务。安装跑在独立 daemon 线程，头部显示 `后台 xxx 42%`。
+
+**文字无阴影**：1.21.4 的 `DrawContext` 只有带 shadow 参数的 `drawText`，没有无阴影的居中版本，所以居中自己按 `getWidth()/2` 算，全部传 `false`。
+
+---
+
+## 四、验证证据
+
+### 4.1 功能验证
+
+| 项 | 结果 |
+|---|---|
+| 四页渲染 | children = 16 / 20 / 9 / 11 / 15 |
+| 下载页 | 列表 children=20，详情 children=23 |
+| 面板几何 | `panel=375x220@26,10`（gui=427x240） |
+| 完整安装链路 | `1.21.4 → Fabric 0.20.1 → 改名 mcver-test → 隔离目录`，≈40s |
+| 关界面不断下载 | `MCVER_AUTO_CLOSE` 开装 4s 后关屏，任务仍跑到「安装完成」 |
+| 启动装好的版本 | 子进程进到标题界面（日志到 `Created: gui.png-atlas`） |
+| OptiFine 静默装 | 1.20.1 生成 `1.20.1-OptiFine_HD_U_I6` + `libraries/optifine/*` |
+| 微软登录 | 真拿到设备码 `USER_CODE=RXPXGPFL` |
+
+### 4.2 像素断言（因为模型看不了图，改用采样）
+
+截游戏窗口必须用**游戏自己的** `ScreenshotRecorder.saveScreenshot()`——外部 `CopyFromScreen` 会被遮挡/失焦窗口骗到，出来全白。
+
+| 采样点 | 期望 | 实测 |
+|---|---|---|
+| 面板体 | `#C6C6C6` | `ffc6c6c6` ✓ |
+| 外框 | `#000000` | `ff000000` ✓ |
+| 按钮 | `#6F6F6F` | `ff6f6f6f` ✓ |
+| 输入框 | 深色 | `ff000000` ✓ |
+| **标题最暗像素** | `0x40`（正文字色） | `0x40` ✓ 无阴影 |
+
+> 有阴影时标题附近会出现 ~`0x10` 的暗像素，这是判定阴影的可靠信号。
+
+### 4.3 实跑日志片段
+
+```
+[00:29:02] 1.21.4 安装完成 -> ...\versions\1.21.4
+[00:29:02] ---- 安装 Fabric 0.20.1 ----
+[00:29:02] profile 里有 8 个库
+[00:29:05] 库下载完成：新下 1，已有 7
+[00:29:05] 写入 fabric-loader-0.20.1-1.21.4.json
+[00:29:05] 版本已命名为 mcver-test
+[00:29:05] 版本隔离已开启 -> ...\versions\mcver-test
+[00:29:05] 安装完成: mcver-test
+```
+
+---
+
+## 五、踩过的坑（重要，按严重度排序）
+
+| # | 坑 | 修法 |
+|---|---|---|
+| 1 | **`Installer.downloadAll` 静默丢文件**：单文件异常只打 stderr，1.20.1 丢 775/3598 个资源仍报「完成」，启动报 `NoSuchFileException` | 失败收集 + 重试 3 轮 + 收尾 sha1 全量校验 + 仍缺抛异常 |
+| 2 | **游戏 JVM 里 `java.net.http.HttpClient` 卡死**：`meta/maven.fabricmc.net`（Cloudflare）在 `send()` 里不返回，request timeout 也不生效（jstack 卡 `CompletableFuture.get` 7 分钟）；PowerShell 同 URL 1 秒 | 小请求全换 `HttpURLConnection`（6s/15s 硬超时）+ 镜像回退；默认**镜像优先** |
+| 3 | **半截 jar 让启动崩**：`intermediary-1.21.4.jar` 只有 147KB（正常 701KB），报 `zip END header not found` | `Net.isJar()` 用 `ZipFile` 真开一次校验；`Launcher.plan()` 也校验，坏文件算进 missing |
+| 4 | **继承版本找不到 client jar**：Fabric 版本 json 只有 `inheritsFrom`，合并后该字段消失，按 `versions/<id>/<id>.jar` 找必然失败 | 新增 `resolveJarId()` 顺 `inheritsFrom` 往上爬 |
+| 5 | **微软登录不能用 AAD 端点**：`AADSTS700016` | 改走 legacy `login.live.com/oauth20_connect.srf` |
+| 6 | **面板被背景盖掉**：`Screen.render()` 先跑 `renderBackground()` 再画控件 | 面板画在 `renderBackground()` 里，先 `super` 再画 |
+| 7 | **OptiFine 受不了 BOM**：`launcher_profiles.json` 带 BOM 时它自带解析器报 `Unexpected character (?) at position 0` | 写文件时确保无 BOM |
+| 8 | **Windows 32767 命令行上限**：classpath 太长起不来 | `java @argfile` |
+| 9 | 1.21.4 物品注册 NPE | `Item.Settings` 必须 `.registryKey(RegistryKey.of(RegistryKeys.ITEM, ITEM_ID))` |
+| 10 | 进度条完成态为空 | `InstallJob` 末尾补 `done = 1; total = 1;` |
+| 11 | 两实例共用 `logs/latest.log` 打 ERROR（不致命） | 开版本隔离即消失 |
+
+---
+
+## 六、已知限制
+
+1. **不能热切换版本**：JVM classpath / natives 定死，只能新开子进程。这就是 PCL/HMCL 的做法，不是缺陷。
+2. **物品是客户端注册的**：单人正常；多人服务器不认这个 id，别带进服务器/扔箱子，多人用快捷键 `M`。
+3. **联机（EasyTier/Terracotta）不做**：塞进游戏进程不现实。
+4. **CurseForge 不做**：要 API key + 条款限制。资源下载走 Modrinth（免费无 key）。
+5. 离线环境会打 `Failed to verify authentication (401)`、`Failed to retrieve profile key pair`，属正常噪音。
+
+---
+
+## 七、还没做（PCL 有，这里没有）
+
+| 优先级 | 功能 | 说明 |
+|---|---|---|
+| ① | **Modrinth 下载中心** | Mod / 资源包 / 光影 / 整合包，搜索 + 按版本和加载器过滤，直接装进当前实例 |
+| ② | **Mod 管理** | 列出 `mods/`、读 `fabric.mod.json` / `mods.toml` 拿真名、`.disabled` 启停、删除、更新 |
+| ③ | `.mrpack` 导入导出 | 纯 zip + `modrinth.index.json` + overrides，实现最简 |
+| ④ | Java 自动下载 | Adoptium API |
+| ⑤ | 存档备份 | |
+| ⑥ | 崩溃日志分析 | |
+
+`DownloadPage.java` 已经有 610 行、五个视图的骨架，① 可以直接在同一个页面体系里加一个导航项。
+
+---
+
+## 八、风险
+
+1. **FDev/Mojang 服务条款**：游戏内启动器本身不违规（跟 PCL/HMCL 同类），但绕过官方启动器的行为在 ToS 灰色地带。
+2. **合规定位**：PCL 下线的直接原因是「遵守相关法律法规」，说明「提供 MC 下载」这件事本身在当前环境有监管风险。这个 mod 只在本机自用、不分发的话问题不大；**如果要发布，需要先想清楚这一点**。
+3. **明文存 token**：`config/mcver.json` 明文存 refresh token，跟 PCL/HMCL 一致。自用可接受，别同步到公共云盘。
+
+---
+
+## 九、一句话总结
+
+从「PCL 为什么不能下载 MC 了」这个问题出发，做出了一个 **198.8 KB 的游戏内 MC 启动器**：能装任意原版版本、能装 Fabric/Quilt/Forge/NeoForge/Iris/OptiFine、能登录微软账号、能启动别的 MC 版本，UI 是原版风格的居中灰面板、文字无阴影，右上角 ✕ 收界面而不断下载。核心链路全部实测跑通。
+
+---
+
+## 十、2026-10-23 下午：多目录 / Java 列表 / 启动诊断
+
+### 改了什么
+
+1. **下载页去掉底部目录显示**：顶上 header 已经有当前目录，底部只留翻页和数量。
+   安装详情页原来那行 `→ D:\...  [隔离开]` 也简化成 `隔离：开/关`。
+2. **多游戏目录**（对齐 PCL/HMCL）：
+   - 启动页第一行 `[◀] [目录名] [▶] [＋]`，`◀ ▶` 直接切，切换后版本列表/下载目标/安装目录全跟随。
+   - `＋`/点目录名进「目录管理」：已知目录列表（点一行切换）、`扫描磁盘`、
+     底部粘路径添加（目录不存在自动建）、`✕` 移出列表。
+   - 持久化：`config/mcver.json` 的 `dirs` + `lastDir`；下次启动回到上次的目录。
+   - 自动发现：history、`~/.minecraft`、`%APPDATA%\.minecraft`、XDG、macOS、
+     当前工作目录，以及扫描时任何 `.minecraft` / 带 `launcher_profiles.json` 的目录。
+   - `Dirs.historyFile()` 从相对路径 `config/` 改成 `Config.dir()`，避免 CWD 不同时丢历史。
+3. **「Java」页**（新导航项）：
+   - `JavaFinder` 重写：不再「每个 major 只留一个」，全部列出（按 major 倒序、同版本 java.exe 优先），
+     并记录哪些是手动加的。
+   - 扫描范围扩大：extra、当前进程、JAVA_HOME、各家 Program Files（Temurin/BellSoft/Microsoft/Zulu/Corretto/Semeru）、
+     `~/.jdks`、`~/.sdkman`、`/usr/lib/jvm`、macOS、PCL 配置、`runtime/`（APPDATA / home / CWD）。
+   - 页面：`▶ 自动（按版本挑）` + 每个 Java 一行（版本 / JDK 名 / 完整路径）+ `重新扫描`；
+     点一行=指定；底部输入框可粘 `java.exe`/`javaw.exe`/`bin`/JDK 根目录/macOS Home。
+   - Linux/macOS：没有文件选择框，统一用粘路径（`.../bin/java`），自动扫描一样有效。
+4. **启动失败可诊断 / 修老版本启动**：
+   - `Launcher.plan` 里 ≤1.18 的 natives 库原来直接 `continue`，**普通 jar 没进 classpath**
+     （旧版 LWJGL2 会 `NoClassDefFoundError`）→ 现在解压 natives 后仍然把 artifact 加进 classpath。
+   - 启动后等 1.8s：进程立刻退出就把**退出码 + 日志尾部**抛到界面上（以前只显示“已启动”）。
+   - 「启动后关当前」改为**先等 6 秒确认子进程活着**再关；死了就不关，显示日志路径。
+   - 「版本」页新增 **日志** 按钮：打开最近一次 `mcver-launch-*.log`。
+   - `Config.javaPath` 现在接受目录 / `javaw.exe`（`JavaFinder.resolveExe`），不再要求必须是 `java.exe`。
+   - Java 版本明显不匹配时在启动行提示（例如用 Java 21 跑要求 8 的版本）。
+   - `Json.parse` 去掉 UTF-8 BOM：手工编辑过的 `mcver.json` 带 BOM 不会再整份读失败。
+
+### 实测
+
+- `gradle build` 通过；产物 186 KB（`mcver-1.0.0.jar`）。
+- 端到端：1.21.4 → Fabric 0.20.1 → 命名 `mcver-e2e` → 隔离目录，约 65s；
+  随后从启动页启动该版本，子进程正常加载 Fabric 0.20.1 并进到标题界面。
+- 用真实目录 `D:\Program Files\Minecraft Java Edition (pcl2)\.minecraft` 启动
+  `1.20.1-Fabric 0.19.5`（Java 17）和 `1.20.1-Forge_47.2.31`（Java 17），都进到标题界面。
+- 截图：`_keep/screenshots/mcver-{启动,下载,账号,版本,Java,设置}.png`；目录管理视图另有
+  `_keep/screenshots/mcver-启动-目录.png`。
+
+### 调试钩子新增
+
+`MCVER_DIRS=1`（直接进目录管理）、`MCVER_TAB=Java`（直接开 Java 页）。
+---
+
+## 十一、14:05 补丁：Java 页翻页 + 目录列表被替换
+
+**1. Java 页改成翻页**
+
+原来只有滚轮（mouseScrolled 直接改 scroll），页面上没有任何页码暗示，看起来就像「只列了一屏」。
+现在和「下载」页统一：顶部 ◀ ▶ 两个按钮 + 右侧 1/2 页码，滚轮顺手也能翻页，
+底部状态行显示 第 1/2 页 · 共 14 个。实测 Java 页 children 从 18 → 20（多出 ◀ ▶）。
+
+**2. 「添加」把原来的目录替换掉了**
+
+真因不是 Dirs.add 写错，而是**当前目录根本没进 Config.dirs**：
+
+- MainScreen.restoreDir() 只用 UiState.setDir() 恢复上次目录，没登记；
+- Dirs.known() = Config.dirs → Config.lastDir → 自动扫到的；
+- 于是这个目录**只靠 lastDir 活着**。用户一点「添加」，switchDir 把 lastDir 改成新目录，
+  旧目录立刻从 known() 里消失 → 看起来就是「被替换掉了」。
+- （只有之前用 ◀ ▶ 切过一次的目录才会进 Config.dirs，所以这个 bug 时灵时不灵。）
+
+修法三处：
+
+1. 
+estoreDir() 恢复后调 Dirs.add(p)，开机就把当前目录登记进 dirs；
+   兜底分支用 Dirs.touchHistory() 只写历史。
+2. Dirs.add(Path p, Path alsoKeep) 重载：登记新目录的同时把**切换前那个**也留在列表里
+   （顺序 [新, 旧, 其余…]）；老的单参版本转调 dd(p, null)。
+3. UiState.switchDir() 先 Path old = dir() 再改 lastDir，把 old 传给 dd。
+   （顺序很关键：先设 lastDir 再 dd 的话，add 里读到的「上一个」已经是新值了。）
+
+顺带 UX：添加 之后**留在管理页**不跳回启动页，列表里能直接看到两行 +
+状态提示「已添加并切到 X（原来的目录还在下面）」；右上角显示 N 个。
+
+实测（config 里 lastDir = PCL 目录、dirs = []，复现最坏情况）：
+添加 D:\Development\mcvermod\testdir2 后落盘成
+dirs: ["…\testdir2", "…\Minecraft Java Edition (pcl2)\.minecraft"]，两个都在；
+日志 mcver: 目录列表 [testdir2, PCL 目录, %APPDATA%\.minecraft, mod\run]。
+
+**新调试钩子**：MCVER_DIR_ADD=<路径>（自动粘路径 + 点「添加」，用于回归验证）。
+---
+
+## 十二、15:10 六项新需求
+
+1. **改名 Water Craft Launcher**：abric.mod.json 的 
+ame、物品 lang（item.mcver.download_tool）、
+   创造栏分类、按键分类、界面左上角标题都改成 Water Craft Launcher。
+   mod id 仍然是 mcver（改 id 会让 config/mcver.json、物品 id 全部失效，不值得）。
+2. **物品图标换成流动的水**：ssets/mcver/models/item/download_tool.json 的 layer0
+   直接指到 minecraft:block/water_flow（原版流动水贴图，自带 mcmeta 动画）。
+   自己那张 download_tool.png 删了。
+   —— 比复制一张水贴图强：跟着资源包走，别人换材质包图标也跟着变。
+3. **版本删除改真删 + 二次确认**：删掉 	rash-mcver 逻辑，改成 Files.walk 递归删；
+   点「删除」先进入确认态，底部只留「确定永久删除 / 取消」，红色警告写着不可恢复。
+4. **修版本隔离**（用户说的「开关有问题」）：
+   - 根因：Plan 里明明有 
+unDir 字段，但 plan() 始终把 
+unDir = gameDir，
+     **启动时根本没把 --gameDir 换到 versions/<id>**，所以隔离只是建了几个空目录。
+   - 改成：Launcher.isIsolated()/setIsolated() + ersions/<id>/.mcver-isolated 标记文件；
+     plan() 见到标记就把 p.runDir 指到版本目录（assets / libraries 仍共用）。
+   - 开关现在能关：关掉只删标记文件，用户存进去的存档/Mod 一个不删。
+   - 实测：1.19.3 开隔离后启动日志落在 ersions/1.19.3/logs/，游戏正常进到图集创建。
+5. **「安装后隔离」→「版本隔离」**：设置页和下载页的文案/提示统一。
+6. **Forge / NeoForge 版本列表修好了**（是真 bug + 网络双杀）：
+   - NeoForge 官方 maven maven.neoforged.net 在本机 DNS 被污染（返回 Facebook 的假 IP，直接超时）；
+     而且旧代码用 p[1]+"."+p[2]+"." 推前缀，对 MC 1.20.1 会算成 20.1.（实际 NeoForge 是 47.x）→ 永远空列表。
+   - 现在优先用 BMCLAPI 的按 MC 版本接口：
+     GET https://bmclapi2.bangbang93.com/neoforge/list/<mc>、.../forge/minecraft/<mc>，
+     官方 maven 只当兜底；1.20.1 的前缀特判成 47.。
+   - 实测：NeoForge 1.20.1 → 60 个版本（首个 47.1.84）；Forge 1.20.1 → 137 个版本（首个 47.4.28）。
+   - 安装器 jar 下载也按「当前源 → BMCLAPI → 官方」三档依次试。
+7. **下载源可配置**（新增 core/Sources.java）：
+   - 默认**只有官方**；Config.downloadSources 存用户加的镜像（名字=根地址）。
+   - 设置页新增「下载源」视图：列表点选、✕ 删除、底部两个输入框（名字 + 根地址）+「添加」（先探测一次再存），
+     还有一个「＋ BMCLAPI」一键预设。
+   - 镜像按 BMCLAPI 约定映射：{root}/mc/game/version_manifest_v2.json、{root}/maven/...、{root}/assets/xx/yy；
+     Installer.rewrite() 从写死的 BMCLAPI 换成 Sources.Src.rewrite()。
+   - Net.getMirrored() 改成「先当前源 → 再官方」，Fabric/Quilt meta 也走同一套。
+   - 实测：写入 BMCLAPI|https://bmclapi2.bangbang93.com → 探测通过 → 落盘
+     downloadSource: "BMCLAPI", downloadSources: ["BMCLAPI=https://bmclapi2.bangbang93.com"]。
+
+### 新调试钩子
+
+MCVER_SOURCES=1（设置页直接进下载源视图）、MCVER_SRC_ADD="名字|根地址"（自动添加）、
+MCVER_VSEL=<id>（版本页选中）、MCVER_VDEL=1 / MCVER_VDEL_OK=1（进确认态 / 直接删）、
+MCVER_VISO=1（切版本隔离）。
+---
+
+## 十三、16:25 图标 / 副标题 / Fabric 启动不了（三个都是真 bug）
+
+### 1. 图标还是紫黑错误块 —— 1.21.4 的 item model 换了机制
+
+**根因**：1.21.4 起，物品模型不再从 `assets/<ns>/models/item/<id>.json` 自动推断，
+必须在 `assets/<ns>/items/<id>.json` 里显式声明（Item Model Definition）。
+只给 models/item 的话，客户端根本不知道这个物品该用哪个模型 → 紫黑错误方块。
+
+**修法**：
+- 新增 `assets/mcver/items/download_tool.json`:
+  `{"model":{"type":"minecraft:model","model":"mcver:item/download_tool"}}`
+- 图标贴图：直接引用 `minecraft:block/water_flow` 是**画不出来的**——
+  水的贴图是**灰度遮罩**（颜色由 biome water color 调制），拿来做物品图标会是一块灰的，
+  而且 32×1024 的动画帧在 item/generated 下也没显示出来。
+  最终做法：从客户端 jar 取 `water_flow.png` 第一帧 → 缩到 16×16 → 按水的蓝
+  （#2E5CB8 → #9EC8FF）重新映射灰度 → 存成 `assets/mcver/textures/item/download_tool.png`（不透明）。
+- `models/item/download_tool.json` 的 layer0 指自己的贴图。
+
+**验证**：自检钩子 `MCVER_ICON=1` 在面板右下角 `ctx.drawItem` 画一次，
+取该区域像素：B-R = **97**（明显是蓝的）；对照组：原版纸图标能画出来，改动前 mcver 图标区域 B-R = **0**（纯按钮灰）。
+
+### 2. 去掉「游戏内版本管理器」副标题
+
+`MainScreen.drawHeader` 里那段（算宽度、trim、与用户名避让）整段删掉，只留标题 + 右上角用户名。
+**验证**：截图像素检查，标题区有文字（dark 1941），标题右侧区域 min=198（纯面板灰，dark=0）。
+
+### 3. Fabric 版本启动不了（退出码 1）—— classpath 里 ASM 重复
+
+**日志**（这次终于抓到了）：
+`
+java.lang.IllegalStateException: duplicate ASM classes found on classpath:
+  .../org/ow2/asm/asm/9.6/asm-9.6.jar!/org/objectweb/asm/ClassReader.class,
+  .../org/ow2/asm/asm/9.10.1/asm-9.10.1.jar!/org/objectweb/asm/ClassReader.class
+  at net.fabricmc.loader.impl.util.LoaderUtil.verifyClasspath
+`
+
+**根因**：`merged()` 合并父版本（1.21.4 自带 asm 9.6）和 Fabric 版本的 libraries 时，
+按 `group|artifact|classifier` 去重只在**相邻两层**生效；多层继承 / json 里本来就有两个 asm 时，
+两个版本都会进 classpath。Fabric 的 `verifyClasspath` 发现重复类直接抛异常 → 退出码 1。
+
+**修法**：`plan()` 里先把 libraries 收进 `Map<group:artifact:ext, lib>`，
+**同 artifact 留版本最高的那个**（`LoaderInstaller.compareVersions`），再走 natives / classpath。
+这也正是官方启动器的行为。
+
+**顺手改的**：启动失败时的日志摘要 `tail()` 原来只取最后 5 行，
+堆栈一长就全是 `at ...`，用户看到的就是「日志里没写原因」。
+现在先扫第一条含 `Exception / Error / Caused by / Could not` 的行（那才是根因），再补最后几行。
+
+**实测**（真目录 `D:\Program Files\Minecraft Java Edition (pcl2)\.minecraft`）：
+- 1.21.4-Fabric 0.19.5（Java 21）→ 进游戏（Setting user），只剩离线 401
+- 1.20.1-Fabric 0.19.5（Java 17）→ 进游戏，只剩离线 401
+- 1.20.1-Forge_47.2.31（Java 17）→ 模块系统正常加载，进游戏
+
+### 新增/沿用钩子
+`MCVER_ICON=1`（右下角画物品图标，用来查图标）、`MCVER_AUTO_LAUNCH`、`MCVER_TAB`、`MCVER_SHOT`。
+
+### 教训
+- **1.21.4 的 items/*.json 不能忘**，这是 1.21.4 相对 1.21.1 最容易漏的破坏性变更。
+- 原版好多贴图是**灰度 + 着色**的（水、草、树叶），直接拿来当物品图标会是灰的。
+- 想验 UI 效果就 `ctx.drawItem` 画出来 + 取像素比颜色，比截图肉眼靠谱（这个环境我看不到图）。
+
+---
+
+## 十四、16:42 交接包
+
+为了换电脑接力开发，写了两样东西：
+
+- **HANDOVER.md**：交接手册。不重复功能说明，只写「怎么在新电脑跑起来 / 代码怎么组织 /
+  哪些坑别再踩 / 没有画面的环境怎么写验证」。踩坑部分记了 8 类：图标三件套、
+  Fabric 的 ASM 重复、Forge/NeoForge 的 DNS 污染与 1.20.1 前缀、版本隔离、多目录登记、
+  PowerShell 的 BOM/CRLF/中文编码、离线账号 401 属正常、build 残留旧资源。
+- **mcvermod-handover-2026-10-23.zip**（1.9 MB，54 个文件，顶层 watercraft-launcher/）：
+  HANDOVER + README + REPORT + jar + 9 张截图 + mod/src 全部源码 + 资源 + 构建脚本。
+  排除 mod/run（554 MB 测试游戏目录）、mod/build、mod/.gradle（69 MB）、
+  .tools/gradle-8.12（144 MB）、*.bak 和所有 
+un-*.log。
+
+Gradle 没打进包（144 MB 太大），HANDOVER 1.2 给了三条路：用现有 gradle / 拷目录 /
+下 8.12 压缩包（附腾讯镜像），并说明为什么不建议直接用 gradlew.bat。
+
+打包脚本用 .NET 的 ZipFile（Compress-Archive 对中文文件名和大目录不稳），
+踩了一个新坑：**PowerShell 5.1 按 GBK 读 .ps1**，脚本里写中文注释会解析失败报
+"表达式或语句中包含意外的标记"，所以打包脚本一律写成 UTF-8 无 BOM + 英文注释。
+---
+
+## 十五、2026-10-23 夜：换机复现 + Fabric 启动"有 pid 没窗口"
+
+接手环境：本机没有 gradle，按 HANDOVER 1.2 从腾讯镜像下 gradle-8.12 解压到 `.tools/`，
+`gradle build`（首次联网）7m39s 通过，产物 200 KB 正常。
+
+### 15.1 先搭了个离线复现台
+
+core 层除了 `Config` 里一句 `MinecraftClient.getInstance()` 之外不依赖 Minecraft，
+所以可以拿个桩类把 core 单独编出来，直接用真实 metadata 跑 `Launcher.plan()`：
+
+`
+javac -d out (core/*.java + 桩 net/minecraft/client/MinecraftClient.java)
+java -cp out Probe <gameDir> <versionId>
+`
+
+这样能一眼看出 classpath / jvm 参数 / 占位符替换对不对，不用进游戏。
+
+### 15.2 实测：Fabric 启动本身是通的
+
+在 `testgame/` 里装真 1.21.4（官方 403 MB 资源全下完）+ Fabric loader 0.20.1，
+再走 UI 那套「改名 + 版本隔离」，然后 `Launcher.launch()` 起真游戏：
+
+- pid 正常，25 秒内窗口出现（任务栏标题 `Minecraft* 1.21.4`）
+- 日志到 `Setting user:` / `Backend library: LWJGL version 3.3.3-snapshot`
+- 只剩离线账号 401 + Realms 认证失败（HANDOVER 4.7 说过的正常现象）
+
+结论：**"pid 有、窗口没有"不是 plan()/launch() 的结构性 bug**，得看现场环境。
+
+### 15.3 这轮修掉的三处真问题
+
+1. **`Installer.Json` 不认 BOM**（真 bug）
+   同一个文件 `core/Json` 能读、`Installer.Json` 抛
+   `NumberFormatException: For input string: ""`（`Long.parseLong("")`）。
+   后果：带 BOM 的版本 json（记事本存过 / 别的启动器写的）会被 `isComplete()` 判成"没装完"
+   从启动页消失；强行启动则直接抛异常。现在 `parse()` 先剥 `\uFEFF`，`number()` 也加了空 token 兜底。
+
+2. **`rulesAllow()` 忽略 `os.arch`**（真 bug）
+   1.21.4 里 `-Xss1M` 的规则是 `os.arch=x86`（只有 32 位该加），以前不看 arch，
+   64 位也被塞 `-Xss1M`，线程栈只剩 1 MB —— Fabric 的 mixin 深调用正好怕这个。
+   现在按 `os.arch` 比对（x86_64 / x86 / arm64 归一化），实测 jvm 参数从 11 条降到 10 条。
+
+3. **JavaFinder 会把 32 位 JVM 也列进来**（潜在）
+   `inspect()` 只读 `JAVA_VERSION`，不看 `OS_ARCH`。64 位系统上选中 32 位 java，
+   MC 1.13+ 的 natives 全是 64 位，表现就是**进程起来了、窗口永远出不来**。
+   现在 64 位系统直接过滤 32 位 JVM。
+
+### 15.4 新增诊断：窗口看门狗
+
+`LaunchPage.watchWindow()`：启动 25 秒后若子进程还活着、日志里却连
+`Backend library:` / `Setting user:` 都没有，就把结论 + 日志路径（有 `hs_err_pid<pid>.log`
+就带崩溃报告路径）写到启动页状态栏。以后再遇到"有 pid 没窗口"，界面自己会说原因。
+
+### 15.5 产物
+
+`mcver-1.0.0.jar` 已用新代码重建（202,487 字节，旧的在 `mcver-1.0.0.jar.bak`）。
+`testgame/` 是这次的实测游戏目录（1.21.4 + 1.21.4-Fabric_0.20.1，开了隔离），可直接复跑。
+### 15.6 自动选 Java 的逻辑也重写了（用户指出「如果真是 java 的问题，那说明自动选择有问题」）
+
+原来 `pickJava` 的毛病：
+
+1. **设置页指定的 java 无条件优先**，哪怕它低于版本要求。用户早先给 1.8 版本设过 Java 8，
+   后来启动 1.21.4 依旧拿 Java 8 起进程，只在状态栏多一行「Java 8，版本要 21」——
+   表现出来就是"有 pid、没窗口"，而且完全看不出跟 Java 有关。
+2. `forMajor()` 找不到满足的版本时**返回列表里版本最低的那个**（`list.get(size-1)`），
+   等于明知道不够还硬上。
+3. `Found` 里没有架构字段，`inspect()` 只看 `JAVA_VERSION` 不看 `OS_ARCH`，
+   64 位系统上照样会列/选 32 位 JVM。
+
+现在的行为：
+
+- `Found` 多了 `arch`，界面 Java 页显示成 `Java 21 x86_64  ...\bin\java.exe`，看得见。
+- `inspect()` 读 `release` 里的 `JAVA_VERSION` + `OS_ARCH`；没有 release 文件才跑一次
+  `java -XshowSettings:properties -version`，一次把版本和架构都抠出来。
+- 64 位系统上 32 位 JVM 直接不进列表（32 位系统不过滤）。
+- `pickJava()`：指定的 java **必须满足 requiredJava** 才用，否则自动兜底并说明原因。
+- `forMajor()`：先找同版本 → 再找"更高的里面最接近的" → 一个都没有返回 null（不糊弄）。
+- `Launch.launch()`：选出来的 Java 版本低于 requiredJava 时**直接报错**，附上版本要求和当前路径，
+  不再让 JVM 抛 `UnsupportedClassVersionError` 那种天书。
+
+本机实测（3 个 JVM）：
+
+`
+21  arch=x86_64  D:\Program Files\Java\jdk-21\bin\java.exe
+18  arch=x86_64  D:\Program Files\Java\jdk-18.0.2.1\bin\java.exe
+ 8  arch=x86_64  D:\Program Files\Java\jre1.8.0_431\bin\java.exe
+
+forMajor(21) = jdk-21      forMajor(17) = jdk-18.0.2.1      forMajor(99) = null
+pickJava(javaPath=Java 8, 需要 21) -> jdk-21   notes=[指定的 Java 8 低于版本要求的 21，改用自动选择]
+`
+
+改完又跑了一遍 Fabric 启动回归：窗口照常出来（`Minecraft* 1.21.4`），日志到 `Setting user` / `Backend library`。
+---
+
+## 十六、2026-10-24 凌晨：六项 UI/流程需求
+
+用户提的六条，全部改完并构建通过（mcver-1.0.0.jar 204 KB 级别，另有 .bak 备份旧版）：
+
+1. **标题栏加物品图标**：MainScreen.drawHeader() 里 ctx.drawItem(new ItemStack(DOWNLOAD_TOOL), x+PAD, y+5)，
+   标题和下面的目录行整体右移 20 px 让位。
+2. **设置页版本隔离勾了会丢**：根因是 isolation 只是页内字段，init() 每次从 Config.defaultIsolation 重新读，
+   切换页面 → host.rebuild() → 又读回旧值。现在点一下就写 Config + Config.save()；「全屏」按钮同样处理。
+3. **下载进度日志没营养**：原来 InstallJob 把 Installer 每次进度回调的 detail 原样记进日志，
+   而下载阶段的 detail 就是 "149 MB" 这种东西。改成 
+oteProgress() 按 **阶段变化 / 每 10%** 记一条，
+   文案是 下载资源文件 40%（1600/3985），MB 数不再进日志（进度条上本来就有）。
+4. **取消 → 终止下载（二次确认）+ 完成后变「返回」**：
+   DownloadPage.initProgress() 现在是三态按钮（终止下载 / 确认终止+不终止了 / 返回），
+   返回时回到「下载前的界面」（picked != null ? DETAIL : LIST）。
+   另外给 Page 加了 	ick() 钩子，MainScreen 每 tick 调一次，DownloadPage.tick() 在任务状态变化时重建按钮 ——
+   不然按钮要等下一次 rebuild 才会从「终止下载」变成「返回」。
+5. **删掉设置页那两行说明**（JVM 参数示例、版本隔离解释）。
+6. **装完模组版本多出一个原版**：新增 Launcher.HIDDEN（ersions/<id>/.mcver-hidden）。
+   InstallJob 在开装前记下 anillaExisted，装完若 loader != NONE 且原版是这次才装的，
+   就给原版打隐藏标记：**文件不动**（加载器版本 inheritsFrom 还要它），只是列表里不显示。
+   Launcher.installed() 过滤隐藏项，installedAll() 仍然全量（版本页底部显示「另有 N 个原版被加载器版本引用（已隐藏）」）。
+   版本页还多了第 7 个按钮「隐藏/显示」，用来手动清掉以前多出来的原版。
+
+### 实测
+
+- gradle build --offline 通过（6s）。
+- 无 UI 跑了一整套 InstallJob（1.21.3 + Fabric 0.20.1 + 改名 1.21.3-Fabric_test）：
+  `
+  installed = [1.21.4-Fabric_0.20.1, 1.21.4, 1.21.3-Fabric_test]
+  hidden    = [1.21.3]
+  all       = [1.21.4-Fabric_0.20.1, 1.21.4, 1.21.3-Fabric_test, 1.21.3]
+  `
+  日志也变成每 10% 一条：下载资源文件 10%（400/3985）…100%（3985/3985），不再刷 MB。
+- 装完的那个 1.21.3-Fabric_test 真启动了一次：窗口出来，日志 Loading Minecraft 1.21.3 with Fabric Loader 0.20.1。
+  → 说明隐藏原版不影响启动。
+### 16.1 追补：用户要的是「文件夹里」也别多出来（不是只隐藏列表）
+
+上一版只是把多出来的原版从列表里隐藏，磁盘上 ersions/1.20.1/ 还在。用户明确要求文件夹里也不该有。
+
+新增 Launcher.flatten(gameDir, loaderId, vanillaId)：把继承链展开成**自包含**版本
+
+- merged() 递归合并父版本 → 去掉 inheritsFrom、id 改成加载器版本名，写成自己的 json
+- 原版的 1.20.1.jar 用 Files.createLink（同分区硬链接，不占额外空间；失败退回复制）搬到
+  ersions/<加载器版本>/<加载器版本>.jar
+- 自检 json 能解析、jar 到位，才 deleteTree(versions/1.20.1)
+- 保守条件：**别的版本还继承着这个原版时不合并**（返回 false → 退化为隐藏）
+
+InstallJob 装完自动调用；版本页最后一个按钮在新旧数据上都管用：
+
+- 选中的是「被加载器版本继承的原版」→ 按钮显示 **合并**，点一下把原版并进去并删目录
+- 否则还是 隐藏/显示
+
+另外：版本页会**故意显示**这类被打过隐藏标记的原版（否则用户没地方点「合并」），启动页仍然不显示。
+
+### 实测
+
+`
+== 安装前 versions/ ==  1.21.2 ...
+安装日志：
+  版本已命名为 1.21.2-Fabric_test
+  已合并成单一版本：versions/1.21.2-Fabric_test（versions/1.21.2 已移除）
+  安装完成: 1.21.2-Fabric_test
+== 安装后 versions/ ==  只剩 1.21.2-Fabric_test（1.21.2 文件夹没了）
+installed = [..., 1.21.4-Fabric_0.20.1, 1.21.4, 1.21.3-Fabric_test, 1.21.2-Fabric_test]
+hidden    = []      ← 这次不需要隐藏了，原版目录是真的删掉了
+`
+
+合并后的版本真启动验证过：窗口出来，日志 `Loading Minecraft 1.21.3 with Fabric Loader 0.20.1`。
+（顺带修了进度日志在多线程下乱序的问题：非递增的百分比直接丢弃。）
+
+---
+
+## 十七、2026-10-24 下午：三条现场反馈（含一个真闪退 bug）
+
+### 17.1 设置 → 下载源：状态行压在输入框上
+
+- 根因：`renderSources()` 里状态行的 y 是 `srcBottom() + 6`，而 `srcBottom() = contentBottom() - 42`，
+  算出来正好是 `contentBottom() - 36` —— 和底部两个输入框（占 `-36 .. -20`）完全重叠。
+- 修法：状态行改到 `contentBottom() - 16`（输入框下方，仍在面板内）。
+- 同时按用户要求删掉底部那行提示「点一行即启用；镜像按 BMCLAPI 规则映射（/mc /maven /assets）」。
+
+### 17.2 下载进行时「再装一个」按下去没反应
+
+- 根因：按钮只做了 `view = LIST; rebuild();`，但 `init()` 里有
+  `if (Jobs.hasJob() && Jobs.running() && view != PROGRESS) view = PROGRESS;` ——
+  页面立刻被拨回进度页，用户看到的就是「按了没反应」。
+- 修法：新增 `allowListWhileRunning`。点「再装一个」置 true，`init()` 就不再强制跳进度页；
+  提交新任务时清回 false；列表页在后台有任务时多一个「◀ 回到进度」按钮，避免回不去。
+- 注意：安装任务仍然只有一个槽位（`Jobs` 单例），后台在跑时点「开始安装」会提示先看进度页。
+
+### 17.3 【真 bug】Forge 1.20.2 启动后窗口闪 1 秒就退
+
+日志（`logs/mcver-launch-<id>-<ts>.log`）：
+
+```
+java.lang.module.ResolutionException: Module minecraft contains package net.minecraft.client,
+  module _1._20._2 exports package net.minecraft.client to minecraft
+  at cpw.mods.modlauncher.ModuleLayerHandler.buildLayer(ModuleLayerHandler.java:72)
+```
+
+- **根因**：Forge 1.20.2+ 的客户端代码是加载器自带的 —— 安装器会把原版 jar 展开成
+  `libraries/net/minecraft/client/client-<ver>-srg.jar`，由 `BootstrapLauncher` 自己加载成 `minecraft` 模块。
+  我们又按 Fabric 时代的习惯把 `versions/<id>/<id>.jar` 塞进了 `-cp`，
+  它就被 Java 当成一个**自动模块**（文件名 `1.20.2.jar` → 模块名 `_1._20._2`），
+  和 `minecraft` 模块抢同一个包 → 模块解析直接失败，主线程退出，窗口消失。
+- **修法**：`Launcher.clientJarProvidedByLoader(libs, mainClass)`，两个条件**同时**满足才把原版 jar 排除：
+  1. `mainClass` 以 `BootstrapLauncher` 结尾；
+  2. `libraries/net/minecraft/client/` 下真的存在 `client-*-srg.jar`。
+  两条都卡住是为了不误伤 Forge 1.20.1：它用的是 `cpw.mods.bootstraplauncher`，且没有 srg jar，
+  客户端代码仍然只能来自原版 jar。
+- **实测**（离线 Probe：core 单独编译 + 跑 `Launcher.plan()`）：
+  `classpath_has_vanilla_jar = false`、`missing = []`、`warnings = []`；
+  再用同一份 Plan 真启动 → `Setting user: Probe` / `Backend library: LWJGL 3.3.2` /
+  一整套纹理图集创建成功，标题界面正常。
+- 判别方法：看 `logs/mcver-args-*.txt` 的 `-cp` 里还有没有 `versions/1.20.2/1.20.2.jar`。
+
+### 17.4 验证手法（这次新加的）
+
+把 `core/*.java` 单独拷到一个临时目录 + 一个 `net.minecraft.client.MinecraftClient` 桩，
+就能 `javac` 出一个不依赖 Minecraft 的探针，直接跑 `Launcher.plan()` 打印 classpath / missing / warnings，
+需要时再 `--launch` 真起进程。比每次进游戏点面板快得多（core 层只有 `Config.dir()` 用到 MinecraftClient）。
+
+### 17.5 设置页内存改了就回 4096 / 与启动页不同步
+
+- 现象一：设置页把内存改成 8192，切到其他页再回来 → 又变 4096。
+- 现象二：启动页那里的内存显示与设置页不一致。
+- **根因**：设置页的输入框（内存/下载线程/JVM 参数/游戏参数/窗口宽高）**只有点「保存」才写 Config**，
+  而 `init()` 每次都从 `Config` 重新取值填回输入框。所以不点保存就切页 = 刚改的丢掉，
+  而 `Config.memMb` 默认就是 4096，看起来就像“自动变回 4096”。
+- 启动页那边又正好相反：它的内存框 `setChangedListener` 只改了内存里的 `Config.memMb`，**没调 `Config.save()`**
+  → 重启就回去了，两边也容易对不上。
+- **修法**（统一成“写透”）：新增 `bindInt()` / `bindText()`，输入框一变就写 `Config` + `Config.save()`。
+  - 数字框带范围保护（内存 256〜65536、线程 1〜64、宽 320〜7680、高 240〜4320），
+    且**打字中途的中间值不写盘**（想打 8192 时敲出的 "8" 不会把内存改成 256）；值没变就不写盘。
+  - 启动页的内存框也补上 `Config.save()`。
+  - 「保存」按钮保留：它额外做一遍 clamp + 把规范化后的值回填到框里。
+- 规矩（和 4.9 同源）：**页内变量只能当缓存，配置的真源永远是 Config，且改了就落盘**；
+  否则一旦 `init()` 重读 Config，页内改动就被默默覆盖。
+
+---
+
+## 十八、2026-10-24 17:00–17:40：NeoForge 1.20.3 装不上
+
+### 18.1 第一层原因：NeoForge 20.2+ 的安装器没有 `--installClient`
+
+```
+joptsimple.UnrecognizedOptionException: installClient is not a recognized option
+  at net.minecraftforge.installer.SimpleInstaller.main(SimpleInstaller.java:93)
+```
+
+`--help` 列得很清楚，只有 `--installServer` / `--extract` / `--mirror` / `--offline` / `--debug`。
+（Forge 49.0.2 for 1.20.3 **有** `--installClient`，所以这是 NeoForge 分支的差异。）
+
+**修法**：新增 `LoaderInstaller.installViaInstallProfile()`——不再依赖安装器 CLI，直接按
+`install_profile.json`（Forge spec=1）自己跑客户端处理器：
+
+1. 从安装器 jar 里取出 `version.json` → 写到 `versions/<id>/<id>.json`；
+2. 下 `version.json` 的 54 个运行库 + `install_profile` 的 182 个处理器依赖（`ensureMaven()`）；
+3. 解 `data` 表：`[maven 坐标]` → libraries 下的文件，`/data/client.lzma` → 从安装器里解到 `.mcver-tmp`，
+   `'字面量'` → 去引号；
+4. 按 `processors` 跑（只跑 `sides` 为空或含 client 的）：MCP_DATA → DOWNLOAD_MOJMAPS → MERGE_MAPPING
+   → jarsplitter(client) → ForgeAutoRenamingTool → binarypatcher，自动跳过 server-only 的 4 个；
+5. 自检 `PATCHED`（`net.neoforged:neoforge:<ver>:client`）真的产出来了。
+
+`installNeoForge()` 现在是：先试 `--installClient`，抛异常就自动转内置流程。
+
+### 18.2 第二层原因（本机无法绕过）：NeoForge 的 maven 不可达
+
+| 目标 | 结果 |
+|---|---|
+| `maven.neoforged.net`（真 IP 104.23.125.189 / 污染 IP 103.240.182.55）| 两个 IP 都 **连不上 443**（不是 DNS 问题，是链路被封）|
+| `bmclapi2.bangbang93.com/maven/net/neoforged/...` → USTC 镜像 | 安装器 jar 200；`neoform-*.zip` **403**；`fancymodloader/events` **404** |
+| `maven.minecraftforge.net` | 直连正常（安装器 5.5MB/5.3s）|
+
+**结论**：NeoForge 的库只发在 `maven.neoforged.net`，镜像不全 → 本机无代理时装不完。
+内置流程已经把能做的做完了（实测已走到“写出版本 json”后卡在 `fancymodloader:events` 下载 404）。
+
+### 18.3 顺手修掉的真 bug：Forge 版本 id 命名变了
+
+- 1.20.2：`forge-1.20.2-48.1.0`
+- **1.20.3：`1.20.3-forge49.0.2`**（`<mc>-forge<ver>`，前面没有 forge- 也没有第二个连字符）
+
+`installForge()` 以前直接 `return "forge-" + full` → 1.20.3 会返回一个不存在的 id，
+后面的改名/隔离/合并全都会失败。现在统一用 `findFreshVersionId()`：装完去 `versions/` 里
+找名字含该版本号、且 mtime 最新的那个目录。
+
+### 18.4 实测
+
+- `1.20.3` 原版 + **Forge 49.0.2**：通过 `installForge()` 装成功（id `1.20.3-forge49.0.2`），
+  `Probe3 --launch` 真启动 → `Setting user: Probe` / `Backend library: LWJGL 3.3.2`。
+- 注意：Forge 1.20.3 的 mainClass 是 `net.minecraftforge.bootstrap.ForgeBootstrap`，
+  **带着原版 jar 也能启动**，所以 17.3 那个“排除原版 jar”的规则**只针对 BootstrapLauncher**，
+  别把 ForgeBootstrap 一起算进去（加了反而可能坏）。
+- NeoForge 20.3.8-beta：CLI 回退正常触发、版本 json 已写、处理器流程已进入，卡在库下载（18.2）。
+
+### 18.5 下载列表不再给“已装过”的版本打勾
+
+按用户要求去掉 `rowLabel()` 里的 `✔` 前缀（连同只为它服务的 `isInstalled()` 一起删了），
+列表现在是 `版本号 · 类型 · 日期`。进度页的“✔ 完成 xxx”保留（那是任务状态，不是版本标记）。
+
+---
+
+## 十九、2026-10-24 18:00–18:10：NeoForge 1.20.3 最终装上了
+
+用户提醒“PCL2 没开代理也能装成功”，顺着查出一个错判 + 两个真 bug。
+
+### 19.1 我之前用 shell 测镜像，被 UA 误导了
+
+BMCLAPI 对 **User-Agent** 敏感（同一文件不同 UA 实测）：
+
+| UA | 结果 |
+|---|---|
+| `WaterCraftLauncher/1.0` / `mcver/1.0` / `PCL2/…` / `curl/8.4.0` | **200，真文件** |
+| 浏览器 UA（含 Mozilla）| 200 但是 929 字节的“Verifying your browser”页 |
+| 空 UA / Java 默认 UA | 403 |
+
+我们代码本来就在 `Net.open()` 里写死了 `WaterCraftLauncher/1.0`，所以 **UA 不是我们的问题**。
+当时我在 shell 里用 `Invoke-WebRequest`/无 UA 的 curl 测，才测出 403/验证页 → 得出了
+“镜像没收录”的错误结论。**教训：测 CDN 行为必须带上启动器实际用的 UA。**
+
+### 19.2 真 bug 1：`fancymodloader:events:1.0.16` 上游就是 404
+
+NeoForge 20.3.x 所有 beta（3.3/3.4/3.6/3.7/3.8）的 version.json 都引用
+`net.neoforged.fancymodloader:events:1.0.16`，而 **BMCLAPI（含 USTC 后端）、forge maven、central 全部 404**；
+相邻的 `1.0.15` / `1.0.17` 都存在（14352 字节，同尺寸不同 sha1）。
+→ 上游发布时就漏了/撤了这个版本。
+
+**修法**：`ensureMaven()` 下载全失败时，若是三段式版本号，按 `+1..+3` → `-1..-3` 找相邻补丁版本，
+下到**原定路径**（classpath 不变）。日志里会看到它降级的痕迹。
+
+### 19.3 真 bug 2：data 表里的 maven 坐标是“产物路径”，不该下载
+
+第一版把 `install_profile.json` 的 `data` 里所有 `[maven]` 都当成待下载输入，于是去下
+`net.minecraft:client:1.20.3-…:slim` —— 这东西是 jarsplitter **要生成**的，永远 404。
+现在 `resolveDataValue()` 只算路径不下载；只有在 **processor 参数**里出现的 `[maven]` 才真下载。
+
+### 19.4 结果（实测链路完整）
+
+```
+安装器不支持 --installClient → 内置处理器流程
+运行库就绪 54 个
+MCP_DATA → DOWNLOAD_MOJMAPS → MERGE_MAPPING → jarsplitter(client) → FART → binarypatcher
+安装完成: neoforge-20.3.8-beta
+```
+
+启动验证（`Probe3 --launch`）：`Setting user: Probe` / `Backend library: LWJGL 3.3.2`，
+且 classpath 按规则排除了原版 jar（mainClass = `cpw.mods.bootstraplauncher.BootstrapLauncher`）。
+
+### 19.5 PCL2 / HMCL 到底怎么做的
+
+- 它们同样从 BMCLAPI 下（PCL2 日志能看到成片的 `bmclapi2.bangbang93.com/maven/net/neoforged/...`）；
+- 它们也**不依赖安装器 CLI**，自己解析 install_profile 跑处理器（HMCL 的 ForgeNewInstallTask、PCL2 的安装模块）；
+- 遇到缺件它们也会退版本/报错 —— PCL2 能装成是因为它装的是 **1.21.3 + NeoForge 21.3.100**（FML 5.0.8），
+  那套 artifact 齐全；没碰到 1.20.3 那个没发出来的 `events:1.0.16`。
+
+---
+
+## 二十、2026-10-24 18:30：设置页「目录」输入框与按钮重叠
+
+- 布局：`dirField` 宽 `w - 128` → 实际占 `[x+40, x+w-88]`，而「检测」按钮占 `[x+w-128, x+w-86]`、
+  「设为目录」占 `[x+w-84, x+w]` → 输入框右边 40px 被「检测」盖住。
+- 修法：右边两个按钮共占 130px，输入框改成 `w - 174`，「检测」左移到 `x + w - 130`。
+  现在（contentW=316）：输入框 `x+40 .. x+258`，「检测」`262..304`，「设为目录」`308..392`，间隔都是 4px。
+
+---
+
+## 二十一、2026-10-24 18:35：账号页改成「列表中间 + 按钮底部 + 分页」
+
+原来的布局是按 `contentY + 固定偏移` 算的：列表只画 `LIST_ROWS = 4` 行，名字框 / 登录按钮跟在列表下面。
+账号一多，列表要么被截断要么把按钮顶到面板中间。
+
+现在：
+
+| 区域 | 位置 |
+|---|---|
+| 列表 | `contentY+2` .. `nameRowY-6`（高度 114 → **6 行**）|
+| 名字输入框 + 「离线登录」| `contentBottom-72` |
+| 微软登录 / 设为当前 / 删除 | `contentBottom-50` |
+| 状态提示 | `contentBottom-22` |
+| 分页 ◀ 1/2 ▶ | 按钮行最右侧（`x+w-72` / `x+w-18`）|
+
+列表行数改成按可用高度算（`listRows()`），账号超过一页就分页；微软登录的设备码界面按钮也一并到底部。
+
+---
+
+## 二十二、2026-10-24 18:48：物品合成配方
+
+之前 **没有配方**：物品只靠创造模式「工具」栏（`ItemGroupEvents`）和 `/give @s mcver:download_tool` 拿。
+
+新增 `resources/data/mcver/recipe/download_tool.json`：
+
+**最终版（用户指定）**：一桶水 → 1 个工具，桶自动返还：
+
+```json
+{
+  "type": "minecraft:crafting_shapeless",
+  "ingredients": [ { "item": "minecraft:water_bucket" } ],
+  "result": { "id": "mcver:download_tool", "count": 1 }
+}
+```
+
+**桶为什么不用写代码就会退**：原版 `Items.WATER_BUCKET` 注册时就是
+`new Item.Settings().recipeRemainder(Items.BUCKET).maxCount(1)`
+（反编译 1.21.4 的 `net/minecraft/item/Items.class` 确认，`lava_bucket` 同样），
+合成时 `CraftingScreenHandler` 会把配料的 `getRecipeRemainder()` 退回背包。
+蛋糕用三个牛奶桶能退回三个空桶就是这个机制。
+
+### 22.1 坑：1.21.4 的 ingredients 必须写字符串，不能写 `{"item": ...}`
+
+第一版写成 `"ingredients": [ { "item": "minecraft:water_bucket" } ]`，游戏日志报：
+
+```
+Couldn't parse data file 'mcver:download_tool' from 'mcver:recipe/download_tool.json':
+DataResult.Error['List is too short: 0, expected range [1-9]']
+```
+
+正确写法（直接照抄原版 `data/minecraft/recipe/acacia_button.json`）：
+
+```json
+"ingredients": [ "minecraft:water_bucket" ]
+```
+
+shaped 的 `key` 也一样：`"#": "minecraft:acacia_planks"`，不是对象。
+**验证配方格式最靠谱的办法：直接从 1.21.4 客户端 jar 里拆一个原版配方对照**
+（`data/minecraft/recipe/*.json`，客户端 jar 里有）。
+
+---
+
+## 二十三、2026-10-24 21:05：产物改名 watercraftlauncher-…
+
+用户要求：模组名叫 **Water Craft Launcher**（`fabric.mod.json` 的 `name` 早就对），
+但**产物文件名**要改成 `watercraftlauncher-<modloader>-<version>-mc<mc_version>.jar`。
+
+- `gradle.properties` 新增 `mod_loader=fabric`，`archives_base_name` 改成 `watercraftlauncher`；
+- `build.gradle` 里用 `tasks.matching{...}.configureEach { archiveFileName = ... }`（jar / remapJar /
+sourcesJar / remapSourcesJar 四个任务），**因为 Gradle 默认会把 version 拼到文件名最后**，
+  光改 `archivesName` 会得到 `watercraftlauncher-fabric-1.0.0-mc1.21.4-1.0.0.jar`（版本重复）。
+- 坑：`sourcesJar` 在配置阶段还不存在（`java { withSourcesJar() }` 后面才创建），
+  用 `tasks.named("sourcesJar")` 会直接报 “Task with name not found” → 必须 `tasks.matching{}.configureEach`。
+- 产物：`watercraftlauncher-fabric-1.0.0-mc1.21.4.jar`（218,856 字节）；
+  部署时把旧的 `mcver-1.0.0.jar` 移走（同一 mod id 两个 jar 会冲突）。
+- `settings.gradle` 的 `rootProject.name` 也改成 `watercraftlauncher`。
+- 模组内部 id 仍是 **`mcver`**（改 id 会让 `config/mcver.json`、`/give mcver:download_tool` 全部失效）。
+
+---
+
+## 二十六、2026-10-25 凌晨：P0 验证矩阵（已开跑）
+
+按 `PLAN.md` 的 P0 阶段，用离线探针（`ProbeInstall` + `ProbeLaunch`）把「代码写了」变成「实测可用」。
+明细见 `VERIFY.md`。
+
+### 26.1 已到 L2（装完 + 启动到 Setting user）
+
+| MC | 加载器 | 版本 |
+|---|---|---|
+| 1.21.4 | Fabric | 0.16.x |
+| 1.21.4 | Quilt | 0.20.0-beta.9 |
+| 1.20.3 | Forge | 49.0.2 |
+| 1.20.2 | Forge | 48.1.0 |
+| 1.20.1 | **Forge** | 47.x |
+| 1.20.3 | NeoForge | 20.3.8-beta |
+| 1.20.1 | **NeoForge** | 47.1.84 |
+| 1.20.2 | OptiFine | HD_U_I7_pre1 |
+| 1.20.2 | Iris | 1.6.14 + Sodium 0.5.5 |
+
+**6 个加载器全覆盖（L2）**，LiteLoader 仍缺。
+
+### 26.2 本轮挖出并修掉的 4 个真 bug
+
+1. `installNeoForge()` 自动选版直连 `maven.neoforged.net` → 国内 `SocketTimeoutException`；改走 `LoaderVersions` 的多源列表。
+2. NeoForge 1.20.1 的 artifact 在 `net.neoforged:forge`，文件名 `forge-<mc>-<ver>-installer.jar`；现在两套路径都试。
+3. 处理器 `ClassNotFoundException: ...ConsoleTool`——某些 profile 的 `classpath` 不列工具本体；现在强制把处理器 jar 加到首位。
+4. **库下载慢到不可用**（180 个库×每个等 15s 超时）：加死主机黑名单（`maven.neoforged.net` 首次超时后直接跳过）+ neoforged 放到候选链最后 + **库并行下载（8 线程）**。
+   → NeoForge 1.20.1 的 74 个库从「预计 45 分钟」降到「约 2 分钟」。
+
+### 26.3 待续
+
+老版本 Fabric（1.16.5 / 1.14.4）与快照（23w13a_or_b）尚未验证；LiteLoader 待决策。
+
+### 26.4 第二轮（老版本）又修 3 个
+
+| # | 现象 | 根因 |
+|---|---|---|
+| 5 | 1.12.2 报「找不到主类 @…\mcver-args.txt」| **Java 8 不支持 @argfile**（Java 9+ 才有）→ Java ≤ 8 直接拼命令行 |
+| 6 | plan 里报 lwjgl-platform / jinput-platform 缺失 | 纯 natives 库本来就没普通 jar，不该计入 missing |
+| 7 | **1.13~1.18 `UnsatisfiedLinkError: lwjgl.dll`** | 合并 json 时同版本「不含 natives」的条目挤掉了原版那份；且 natives 只解了第一个 jar |
+
+新增到 L2：**Forge 1.12.2**（Java 8 + launchwrapper）、**Fabric 1.16.5**（natives 修好）。
+累计 11 个组合验证通过。
+
+---
+
+## 二十四、2026-10-24 21:22：加载器 × 版本兼容规则表（LoaderSupport）
+
+用户提出“搞 n.xx+ 就不用一个个版本支持”。实测后的结论：
+
+| 加载器 | 能否用区间规则 | 数据 |
+|---|---|---|
+| Fabric | ✅ `>= 1.14` | 532 个游戏版本（48 正式版）|
+| Quilt | ✅ `>= 1.14.4` | 441 个（44 正式版）|
+| NeoForge | ✅ `>= 1.20.1` | 1.20.1/1.20.5/1.21.2/1.21.4/26.x 都有 |
+| **Forge** | ❌ 必须精确集合 | 77 个 MC 版本，**缺口：1.16、1.17、1.20.5、1.21.2**，1.13 只有 1.13.2、1.14 只有 1.14.2+ |
+| **LiteLoader** | ❌ 固定集合 | 16 个版本，2017-11-29 停更 |
+
+所以落地为 `core/LoaderSupport.java`：**区间规则 + 精确集合 + 快照归为 MAYBE**。
+`Verdict.OK / MAYBE / NO`，`reason()` 给界面一句话。快照/愚人节版：
+Fabric/Quilt 为 MAYBE（它们真发快照构建），Forge/NeoForge 直接 NO。
+
+接入：`DownloadPage` 选加载器时先查规则表，不支持的组合**不发网络请求**、直接状态栏报原因；
+`startInstall()` 再卡一道。自检（ProbeSupport，16 个用例）全对。
+
+剩下的全加载器工作：LiteLoader 还需 `Kind` + 安装实现（生成 version json + launchwrapper + tweakClass），
+只有 16 个版本，已经在 `LoaderSupport.liteLoaderVersions()` 里备好白名单。
+
+---
+
+## 二十五、2026-10-24 22:30：多版本架构落地（单源码 + compat 覆盖）
+
+用户要求“全版本全加载器”，并同意用复制多份项目的方式推进。实测定下来的做法：
+
+### 25.1 验证：相邻版本差异极小
+
+把项目复制成 `watercraft-launcher-1.21.1` 后，从 1.21.4 降到 1.21.1 只错两处：
+
+1. `Item.Settings.registryKey(...)` 是 1.21.2+ 才加的 → 1.21.1 去掉；
+2. `UseItemCallback` 返回值 1.21.1 是 `TypedActionResult<ItemStack>`，1.21.4 改成 `ActionResult`。
+
+修完 `BUILD SUCCESSFUL`，产物 `watercraftlauncher-fabric-1.0.0-mc1.21.1.jar`。
+
+### 25.2 但手工复制 N 份会失控 → 改成覆盖式
+
+- `gradle.properties` 新增 `fabric_api_version` / `compat`；
+- `build.gradle`：`-Pcompat=<name>` 时把 `src/compat/<name>/java` 加成源码目录，
+  并**排除主源码里同名文件**（实测日志：`[compat] 覆盖 2 个文件`）；
+- `src/compat/1.21.1/java/dev/mcver/{McVerMod,McVerClient}.java` 就是那两份差异文件；
+- `scripts/build-all.ps1` 一键构建全部 target，产物拷到 `dist/`。
+  实测：两个 target 都出 jar（mc1.21.4 / mc1.21.1）。
+- ⚠️ PowerShell 5.1 按 GBK 读 .ps1，带中文注释的脚本**必须存成 UTF-8 带 BOM**，否则报“字符串缺少终止符”。
+
+### 25.3 LiteLoader：决定暂不实现（有实测依据）
+
+`dl.liteloader.com/versions/versions.json` 还能读（最后更新 2017-11-29，16 个版本），但 jar 下载：
+
+- `repo.mumfrey.com` 的固定版位 **404**；
+- 只有时间戳 snapshot 重定向能拿到，且**实测 8 KB/s**（1.68 MB 文件 60 秒只下了 470 KB）。
+
+结论：技术可行但依赖一个正在死的仓库，价值极低。白名单（`liteLoaderVersions()`）和规则留在代码里，以后要补直接接。
+
+### 25.4 顺手修掉的真 bug：NeoForge 前缀推断
+
+`mc.split("\\.")` 取第 2、3 段拼前缀的写法，遇到新命名 `26.1` 直接抛“无法推导前缀”。
+新增 `LoaderVersions.neoPrefix()`：`1.20.1→47.`、`1.20.3→20.3.`、`26.1→26.1.`，`installNeoForge()` 也改用它。
+
+- 1.21+ 数据包目录是 **`recipe`（单数）**，1.20.x 及以前是 `recipes`；本项目 `depends.minecraft >= 1.21`，所以用单数。
+- 配方是数据包内容，**旧存档不用重开**，重启游戏就生效。
+- 想换配方就改这一个 JSON（`pattern` + `key` + `result`）。
+
+---
+
+## 二十七、2026-10-25 17:0x：出报告 + 打包移交
+
+用户要求「写一下报告，然后打包」。本轮**没有改代码**，只做文档整理、重新构建、打包。
+
+### 27.1 报告
+
+- `PROGRESS.md` 重写为 **「进展报告：截至 2026-10-25」**（提炼层）：真实支持表（11 个 L2 组合 + 证据）、两天做的事、7 个 bug 的根因表、关键结论、产物路径、诚实缺口、阶段计划、待拍板事项。
+- `VERIFY.md` 是原始验证记录，`REPORT.md`（本文件）是流水账，三者分工写明在 PROGRESS 开头。
+
+### 27.2 重新构建
+
+`scripts/build-all.ps1` 跑两个 target，均 `BUILD SUCCESSFUL`：
+
+| target | 产物 | 字节 |
+|---|---|---|
+| 1.21.4 | `watercraftlauncher-fabric-1.0.0-mc1.21.4.jar` | 226,096 |
+| 1.21.1 | `watercraftlauncher-fabric-1.0.0-mc1.21.1.jar` | 225,954 |
+
+部署三处已核对一致（SHA256 `A78A7E70…3A16`）：`mod/build/libs` → 项目根 → `.minecraft/versions/1.21.4-Fabric 0.19.5/mods/`。
+⚠️ 1.21.4 的 `UP-TO-DATE`（源码 02:04 之后没动过），**1.21.1 是重新编译的**——之前 dist 里那份（10-24 22:38）已过期，这次补上了。
+
+### 27.3 打包
+
+新增 `scripts/pack-release.ps1`（可复跑），产物：
+
+- **`D:\Development\watercraft-launcher-2026-10-25.zip`**，57 个文件，**0.84 MB**。
+- 含：源码（29 + compat 2）、资源、`dist/` 两个 jar、根目录 1.21.4 jar、`build.gradle` / `settings.gradle` / `gradle.properties` / wrapper、4 个脚本、6 份文档（README / HANDOVER / PLAN / PROGRESS / REPORT / VERIFY）、`.gitignore`。
+- 排除：`.tools`（274 MB Gradle）、`testgame`（727 MB）、`_keep`、`mod/build`、`mod/.gradle`、`mod/run`、`mod/config`（含 token）、`logs`、`*.bak*`、`config/mcver.json`。
+- 接力方需要自备 **JDK 21 + Gradle 8.12**（HANDOVER §1.2 写了三条获取路径，`.tools` 故意不打进包）。

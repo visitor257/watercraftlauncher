@@ -1,0 +1,12 @@
+{
+  "type": "minecraft:crafting_shapeless",
+  "category": "misc",
+  "group": "mcver",
+  "ingredients": [
+    "minecraft:water_bucket"
+  ],
+  "result": {
+    "count": 1,
+    "id": "mcver:download_tool"
+  }
+}

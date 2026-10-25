@@ -1,0 +1,47 @@
+# ---- 构建产物（体积大、可重生成，绝不入库）
+build/
+dist/
+mod/build/
+mod/.gradle/
+mod/run/
+
+# ---- 本地工具链：解压好的 Gradle 发行版 + 安装包（约 274 MB）
+.tools/
+
+# ---- 测试游戏目录（700 MB 级，内含 assets/libraries/mods）
+testgame/
+
+# ---- 截图归档（如需展示，单独放 docs/screenshots 精选几张）
+_keep/
+
+# ---- jar 与备份（发布走 GitHub Releases，不进仓库历史）
+*.jar
+!mod/gradle/wrapper/gradle-wrapper.jar
+*.bak
+*.bak2
+*.bak3
+*.retired-*
+
+# ---- 日志与崩溃报告
+*.log
+logs/
+crash-reports/
+hs_err_pid*.log
+
+# ---- IDE / 系统垃圾
+.idea/
+*.iml
+.vscode/
+.settings/
+.classpath
+.project
+Thumbs.db
+.DS_Store
+
+# ---- 本机私有配置（含游戏目录路径、账号 token，一律不入库）
+config/mcver.json
+mod/config/mcver.json
+
+# ---- 探针编译产物
+tools/probe/out/
+
