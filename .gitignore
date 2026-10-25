@@ -45,3 +45,8 @@ mod/config/mcver.json
 # ---- 探针编译产物
 tools/probe/out/
 
+
+# ---- 验证产物（可重新生成）
+verification/.run.lock
+logs/verify/
+

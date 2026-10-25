@@ -57,11 +57,40 @@ processResources {
     filesMatching("fabric.mod.json") {
         expand "version": project.version
     }
+
 }
 
 tasks.withType(JavaCompile).configureEach {
     it.options.encoding = "UTF-8"
-    it.options.release = 21
+    // 例外：OptiFine 驱动必须编成 Java 8 字节码（见下面 compileRunner）
+    if (it.name != "compileRunner") it.options.release = 21
+}
+
+// ---- OptiFine 驱动 ----
+// 1.12.2 / 1.19.4 的 OptiFine 安装器只能跑在「那个年代」的 Java 上，而 mod 本体是
+// Java 21 字节码。所以驱动类单独编成 release 8，打成 optifine-runner.jar 放进 jar 资源，
+// 运行时解出来用对应 Java 起子进程执行（core/LoaderInstaller#invokeOptifineInstaller）。
+def runnerClasses = layout.buildDirectory.dir("runner-classes")
+
+tasks.register("compileRunner", JavaCompile) {
+    source = fileTree("runner") { include "**/*.java" }
+    classpath = files()
+    destinationDirectory = runnerClasses
+    options.encoding = "UTF-8"
+    options.release = 8
+    options.compilerArgs.addAll(["-Xlint:-options", "-nowarn"])
+}
+
+tasks.register("runnerJar", Jar) {
+    dependsOn "compileRunner"
+    archiveFileName = "optifine-runner.jar"
+    destinationDirectory = layout.buildDirectory.dir("runner")
+    from runnerClasses
+}
+
+// processResources 在上面已经声明过了，这里补上资源（必须在 runnerJar 注册之后）
+tasks.named("processResources").configure {
+    from(tasks.named("runnerJar"))
 }
 
 java {

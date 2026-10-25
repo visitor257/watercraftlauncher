@@ -35,6 +35,8 @@ public final class Launcher {
         public String type = "release";
         public String assetIndexId;
         public int requiredJava = 8;
+        /** 这个版本要哪个 Mojang 运行时组件（javaVersion.component），没写就 null */
+        public String javaComponent;
         public Path nativesDir;
         public List<Path> classpath = new ArrayList<>();
         public List<String> jvm = new ArrayList<>();
@@ -379,6 +381,7 @@ public final class Launcher {
         if (jv != null && jv.get("majorVersion") != null) {
             p.requiredJava = (int) json_num(jv.get("majorVersion"));
         }
+        if (jv != null && jv.get("component") != null) p.javaComponent = json_str(jv.get("component"));
 
         Map<String, Object> ai = json_obj(j.get("assetIndex"));
         p.assetIndexId = ai != null ? json_str(ai.get("id")) : json_str(j.get("assets"));
@@ -718,6 +721,13 @@ public final class Launcher {
         }
         Path found = JavaFinder.forMajor(p.requiredJava);
         if (found != null) return found;
+
+        // 本机没有这个主版本 → 下 Mojang 官方运行时（否则 1.20.5+ / 26.x 直接卡死）
+        Path fetched = JavaRuntime.ensure(p.gameDir, p.javaComponent, p.requiredJava, notes::add);
+        if (fetched != null) {
+            notes.add("自动下载 Java " + p.requiredJava + " 运行时");
+            return fetched;
+        }
 
         // 没一个满足要求：退到当前 JVM（它自己肯定是对的那个版本）
         Path self = Paths.get(System.getProperty("java.home", ""), "bin",

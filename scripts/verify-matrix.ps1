@@ -39,6 +39,24 @@ if (-not (Test-Path (Join-Path $cp 'dev\mcver\probe\ProbeInstall.class'))) {
     exit 1
 }
 
+# ---- 同一个测试目录只允许一个矩阵在跑 ------------------------------------------
+# 两个探针同时写 testgame 会互相覆盖 libraries / versions / mcver-install.log，
+# 结果就是“明明装完了却报失败”和一堆僵尸 java 进程。用锁文件硬拦。
+$lockFile = Join-Path $root 'verification\.run.lock'
+New-Item -ItemType Directory -Force -Path (Split-Path -Parent $lockFile) | Out-Null
+if (Test-Path $lockFile) {
+    $oldPid = (Get-Content $lockFile -ErrorAction SilentlyContinue | Select-Object -First 1)
+    $alive = $false
+    if ($oldPid) { $alive = $null -ne (Get-Process -Id $oldPid -ErrorAction SilentlyContinue) }
+    if ($alive) {
+        Write-Host "已有一个验证在跑（PID $oldPid），等它结束或先 kill 掉" -ForegroundColor Red
+        exit 1
+    }
+    Remove-Item $lockFile -Force -ErrorAction SilentlyContinue
+}
+$PID | Set-Content -Encoding UTF8 $lockFile
+try {
+
 $resDir  = Join-Path $root 'verification'
 $logDir  = Join-Path $root 'logs\verify'
 New-Item -ItemType Directory -Force -Path $resDir, $logDir | Out-Null
@@ -125,8 +143,51 @@ function Save-Row($row) {
     Add-Content -Encoding UTF8 -Path $csv -Value $line
 }
 
+# 跑一个 java 进程，返回 stdout+stderr 的每一行和退出码。
+#
+# 为什么不用 & $java ... 2>&1：PowerShell 5.1 把原生命令的 stderr 当成 ErrorRecord，
+# 脚本里只要 $ErrorActionPreference='Stop' 就会直接抛 NativeCommandError 把整批跑挂
+# （第一次跑 Phase 1 就是这么挂在 1.20.1-FORGE 的 "跳过不可达主机" 警告上的）。
+# 用 .NET Process 自己收流，跟 PowerShell 的错误处理完全无关。
+function Invoke-Java {
+    param([string]$Class, [string[]]$Arguments, [string]$LogPath)
+
+    $psi = New-Object System.Diagnostics.ProcessStartInfo
+    $psi.FileName = $java
+    $psi.Arguments = (@('-cp', $cp, $Class) + $Arguments | ForEach-Object {
+        if ($_ -match '\s') { '"' + $_ + '"' } else { $_ }
+    }) -join ' '
+    $psi.RedirectStandardOutput = $true
+    $psi.RedirectStandardError = $true
+    $psi.UseShellExecute = $false
+    $psi.StandardOutputEncoding = [System.Text.Encoding]::UTF8
+    $psi.StandardErrorEncoding = [System.Text.Encoding]::UTF8
+    $psi.WorkingDirectory = $root
+
+    $p = [System.Diagnostics.Process]::Start($psi)
+    $sb = New-Object System.Text.StringBuilder
+    $outTask = $p.StandardOutput.ReadToEndAsync()
+    $errTask = $p.StandardError.ReadToEndAsync()
+    $p.WaitForExit()
+    [void]$sb.Append($outTask.Result)
+    [void]$sb.Append($errTask.Result)
+    $text = $sb.ToString()
+
+    if ($LogPath) { $text | Set-Content -Encoding UTF8 $LogPath }
+
+    return [pscustomobject]@{
+        code  = $p.ExitCode
+        lines = @($text -split "`r?`n" | Where-Object { $_ -ne '' })
+    }
+}
+
 $done = @(Get-Done)
-$java = (Get-Command java -ErrorAction Stop).Source
+# 优先用真实 JDK 路径：javapath 下的 java.exe 是个壳，会再 spawn 一个真 java，
+# kill 不干净就成了僵尸进程（踩过：一个信号 kill 掉父进程，子进程还在装 NeoForge）。
+$java = [System.IO.Path]::Combine($env:JAVA_HOME, 'bin\java.exe')
+if (-not ($env:JAVA_HOME -and (Test-Path $java))) {
+    $java = (Get-Command java -ErrorAction Stop).Source
+}
 
 $sel = @($matrix | Where-Object {
     ($Phase -eq 0 -or $_.phase -eq $Phase) -and
@@ -152,9 +213,11 @@ foreach ($c in $sel) {
     $t0 = Get-Date
     $ilog = Join-Path $logDir "$combo.install.log"
 
-    $out = & $java -cp $cp dev.mcver.probe.ProbeInstall $GameDir $c.mc $c.kind '-' $c.shader '-' $target 1 2>&1
-    $code = $LASTEXITCODE
-    $out | Set-Content -Encoding UTF8 $ilog
+    $res = Invoke-Java -Class 'dev.mcver.probe.ProbeInstall' `
+        -Arguments @($GameDir, $c.mc, $c.kind, '-', $c.shader, '-', $target, '1') `
+        -LogPath $ilog
+    $out = [string[]]$res.lines
+    $code = $res.code
 
     $installedId = $null
     $detail = ''
@@ -173,9 +236,11 @@ foreach ($c in $sel) {
     if ($install -eq 'OK' -and -not $SkipLaunch) {
         Write-Host "        启动验证 $installedId ..." -ForegroundColor Yellow
         $llog = Join-Path $logDir "$combo.launch.log"
-        $lout = & $java -cp $cp dev.mcver.probe.ProbeLaunch $GameDir $installedId $LaunchTimeout 2>&1
-        $lcode = $LASTEXITCODE
-        $lout | Set-Content -Encoding UTF8 $llog
+        $lres = Invoke-Java -Class 'dev.mcver.probe.ProbeLaunch' `
+            -Arguments @($GameDir, $installedId, "$LaunchTimeout") `
+            -LogPath $llog
+        $lout = [string[]]$lres.lines
+        $lcode = $lres.code
         $launch = if ($lcode -eq 0) { 'OK' } else { 'FAIL' }
         foreach ($l in $lout) {
             if ($l -match '^\[probe\] (ERROR|TIMEOUT|进程已退出) ?(.*)$') { $detail = ($l -replace '^\[probe\] ', '').Trim() }
@@ -202,7 +267,8 @@ foreach ($c in $sel) {
 }
 
 # ---------------------------------------------------------------- 汇总
-$all = Get-Done
+# 同一个 combo 可能跑过多次（-Force / 修完重跑），汇总只取最后一次
+$all = @(Get-Done | Group-Object combo | ForEach-Object { $_.Group | Select-Object -Last 1 })
 $md = New-Object System.Collections.Generic.List[string]
 $md.Add('# 验证结果（自动生成）')
 $md.Add('')
@@ -220,3 +286,4 @@ $md | Set-Content -Encoding UTF8 (Join-Path $resDir 'RESULTS.md')
 
 Write-Host ''
 Write-Host "L2 通过 $ok / $($all.Count)，结果见 verification\RESULTS.md" -ForegroundColor Cyan
+} finally { Remove-Item $lockFile -Force -ErrorAction SilentlyContinue }

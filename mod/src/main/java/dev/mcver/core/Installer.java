@@ -100,6 +100,8 @@ public final class Installer {
         public int requiredJava = 8;
         public String versionType = "release";
         public boolean legacyAssets;
+        /** 版本 json 里的 javaVersion.component（Mojang 运行时组件名，如 java-runtime-epsilon） */
+        public String javaComponent;
         /** 原始版本 json，Relauncher 需要它来重新求值 arguments */
         public Map<String, Object> versionJson;
     }
@@ -202,8 +204,11 @@ public final class Installer {
         r.mainClass = Json.str(vj.get("mainClass"));
         r.versionType = vj.get("type") == null ? "release" : Json.str(vj.get("type"));
         Map<String, Object> javaVer = Json.objOrNull(vj.get("javaVersion"));
-        if (javaVer != null && javaVer.get("majorVersion") != null)
-            r.requiredJava = (int) Json.num(javaVer.get("majorVersion"));
+        if (javaVer != null) {
+            if (javaVer.get("majorVersion") != null)
+                r.requiredJava = (int) Json.num(javaVer.get("majorVersion"));
+            r.javaComponent = Json.str((Object) javaVer.get("component"));
+        }
 
         // 3) client jar
         Map<String, Object> dl = Json.objOrNull(vj.get("downloads"));

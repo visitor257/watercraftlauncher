@@ -18,8 +18,11 @@ import java.nio.file.Paths;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
@@ -242,31 +245,366 @@ public final class LoaderInstaller {
         String ver = want;
         if (ver == null || ver.isBlank()) {
             log.accept("查询 Forge 版本…");
-            String promosRaw = get("https://files.minecraftforge.net/net/minecraftforge/forge/promotions_slim.json");
-            Map<String, Object> promos = Json.obj(Json.obj(Json.parse(promosRaw)).get("promos"));
-            ver = Json.str(promos, mc + "-recommended", null);
-            if (ver == null) ver = Json.str(promos, mc + "-latest", null);
-            if (ver == null) throw new IOException("Forge 没有 " + mc + " 的版本");
+            // 走 LoaderVersions：BMCLAPI 优先，官方 maven / promotions 兵底。
+            // （以前这里直连 promotions_slim.json，国内经常读超时，26.1 就是这么挂的）
+            var list = LoaderVersions.fetch(Kind.FORGE, mc);
+            if (list.isEmpty()) throw new IOException("Forge 没有 " + mc + " 的版本");
+            ver = list.get(0).id();
         }
         String full = mc + "-" + ver;
         log.accept("Forge " + full);
 
         Path jar = gameDir.resolve(".mcver-tmp").resolve("forge-" + full + "-installer.jar");
         Files.createDirectories(jar.getParent());
-        String rel = "net/minecraftforge/forge/" + full + "/forge-" + full + "-installer.jar";
+
+        // Forge 的 maven 布局有两代，**目录名和文件名都得跟着变**：
+        //   现代： net/minecraftforge/forge/<mc>-<ver>/forge-<mc>-<ver>-installer.jar
+        //   1.7.10 后期（10.13.4.x）：
+        //          net/minecraftforge/forge/<mc>-<ver>-<mc>/forge-<mc>-<ver>-<mc>-installer.jar
+        // 只拼现代那套会在 1.7.10 上 404 —— 而且 404 是**目录不存在**，不是文件缺失。
+        String relModern = "net/minecraftforge/forge/" + full + "/forge-" + full + "-installer.jar";
+        String relLegacy = "net/minecraftforge/forge/" + full + "-" + mc
+                + "/forge-" + full + "-" + mc + "-installer.jar";
         downloadFirst(new String[]{
-                Sources.active().rewrite("https://maven.minecraftforge.net/" + rel),
-                "https://bmclapi2.bangbang93.com/maven/" + rel,
-                "https://maven.minecraftforge.net/" + rel
+                "https://mirrors.ustc.edu.cn/bmclapi/" + relModern,
+                "https://cernet.mirrors.ustc.edu.cn/bmclapi/" + relModern,
+                "https://bmclapi2.bangbang93.com/maven/" + relModern,
+                "https://maven.minecraftforge.net/" + relModern,
+                "https://mirrors.ustc.edu.cn/bmclapi/" + relLegacy,
+                "https://cernet.mirrors.ustc.edu.cn/bmclapi/" + relLegacy,
+                "https://bmclapi2.bangbang93.com/maven/" + relLegacy,
+                "https://maven.minecraftforge.net/" + relLegacy
         }, jar);
 
-        run(java, log, "-jar", jar.toString(),
-                "--installClient", gameDir.toAbsolutePath().toString());
+        // 先把库里列的文件用我们自己的多源链下完，再让安装器 --offline 跑。
+        // 为什么必要：Forge 安装器自己用 DownloadUtils 直连 maven.minecraftforge.net，
+        // 没有重试/镜像/死主机记忆，国内一跳 SSL 握手超时就整个失败（1.20.6 就是这么挂的）。
+        int prefetched = prefetchInstallerLibraries(gameDir, jar, log);
+        log.accept("已预取 " + prefetched + " 个 Forge 库");
+
+        try {
+            run(java, log, "-jar", jar.toString(),
+                    "--installClient", gameDir.toAbsolutePath().toString(), "--offline");
+        } catch (Exception e) {
+            if (looksLikeUnknownOption(e)) {
+                // 1.7.10 / 1.10.2 那一代安装器**根本没有 --installClient**（只有 --extract /
+                // --installServer），当年客户端安装只能靠 GUI。改走 install_profile 的
+                // legacy（spec 0）格式：解出 universal jar + 直接写 versionInfo。
+                log.accept("这批老安装器没有 --installClient，改用 legacy install_profile 流程");
+                return installViaLegacyProfile(gameDir, jar, log);
+            }
+            // 离线跑不过（多半是安装器还要拉我们没读到的文件）→ 退回镜像模式让它自己下
+            log.accept("离线安装失败（" + e.getMessage() + "），改用镜像模式重试");
+            run(java, log, "-jar", jar.toString(),
+                    "--installClient", gameDir.toAbsolutePath().toString(),
+                    "--mirror", "https://bmclapi2.bangbang93.com/maven/");
+        }
         // 版本 id 不要硬猜：1.20.2 是 forge-<mc>-<ver>，1.20.3 起变成 <mc>-forge<ver>
         String found = findFreshVersionId(gameDir, full, ver);
         return found != null ? found : "forge-" + full;
     }
 
+    /**
+     * 把安装器 jar 里声明要用的库全部先下好，返回成功个数。
+     *
+     * <p>为什么必须这么做：Forge / NeoForge 安装器内部的 DownloadUtils **只直连
+     * maven.minecraftforge.net / maven.neoforged.net**，没有镜像、没有重试、没有死主机
+     * 记忆，也不做相邻版本回退。国内网络一跳 SSL 握手超时就整个安装失败
+     * （1.20.6 Forge、1.20.4/1.20.6 NeoForge 都是这么挂的）。
+     *
+     * <p>要读两份清单，缺一不可：
+     * <ul>
+     *   <li>{@code version.json} 的 libraries —— 装完要留在 classpath 里的运行时库</li>
+     *   <li>{@code install_profile.json} 的 libraries / processors[].classpath / args 里的
+     *       {@code [group:artifact:version]} —— 安装期处理器要用的工具链</li>
+     * </ul>
+     * 后者经常被漏，漏了就会在处理器阶段才炸。
+     */
+    /** 一条预取任务：落盘相对路径 + 候选地址 + 期望的 sha1/size（清单给了才校验）。 */
+    private record Fetch(String rel, List<String> urls, String sha1, long size) { }
+
+    static int prefetchInstallerLibraries(Path gameDir, Path installerJar, Consumer<String> log) {
+        // 关键：**不能**用 name 拼路径。Forge 1.14.4 的 name 写作
+        //   net.minecraftforge:accesstransformers:1.0.5-shadowed
+        // 看着像 version=1.0.5-shadowed，真实 url 却是
+        //   accesstransformers/1.0.5/accesstransformers-1.0.5-shadowed.jar
+        // （版本 1.0.5 + classifier shadowed），而清单里的 path 字段又是错的。
+        Map<String, Fetch> fetches = new LinkedHashMap<>();
+        try (java.util.zip.ZipFile z = new java.util.zip.ZipFile(installerJar.toFile())) {
+            String verTxt = zipText(z, "version.json");
+            if (verTxt != null) collectFetches(Json.obj(Json.parse(verTxt)), fetches);
+
+            String profTxt = zipText(z, "install_profile.json");
+            if (profTxt != null) {
+                Map<String, Object> prof = Json.obj(Json.parse(profTxt));
+                collectFetches(prof, fetches);
+                for (Object o : nz(Json.arr(prof.get("processors")))) {
+                    Map<String, Object> proc = Json.obj(o);
+                    if (proc == null) continue;
+                    for (Object c : nz(Json.arr(proc.get("classpath")))) {
+                        addCoord(fetches, Json.str(c));
+                    }
+                    for (Object a : nz(Json.arr(proc.get("args")))) {
+                        String s = Json.str(a);
+                        if (s == null) continue;
+                        s = s.trim();
+                        if (s.startsWith("[") && s.endsWith("]")) {
+                            String inner = s.substring(1, s.length() - 1).trim();
+                            if (inner.split(":").length >= 3) addCoord(fetches, inner);
+                        }
+                    }
+                }
+            }
+        } catch (Exception e) {
+            log.accept("读安装器清单失败：" + e.getMessage());
+            return 0;
+        }
+        if (fetches.isEmpty()) return 0;
+
+        int ok = 0;
+        List<String> failed = new ArrayList<>();
+        for (Fetch f : fetches.values()) {
+            Path dst = gameDir.resolve("libraries").resolve(f.rel());
+            try {
+                if (valid(dst, f)) { ok++; continue; }
+                Files.createDirectories(dst.getParent());
+                downloadVerified(f, dst);
+                ok++;
+            } catch (Exception ex) {
+                failed.add(f.rel() + "（" + ex.getMessage() + "）");
+            }
+        }
+        for (String f : failed) log.accept("  预取失败 " + f);
+        return ok;
+    }
+
+    /** 文件在不在、大小/哈希对不对。清单没给 size/sha1 时只要求非空且不是半截 jar。 */
+    private static boolean valid(Path dst, Fetch f) {
+        try {
+            if (!Files.isRegularFile(dst)) return false;
+            long len = Files.size(dst);
+            if (len <= 0) return false;
+            if (f.size() > 0 && len != f.size()) return false;
+            if (f.sha1() != null) return f.sha1().equalsIgnoreCase(sha1(dst));
+            // 没有权威大小：至少别把明显断掉的 jar 当好的
+            return !f.rel().endsWith(".jar") || len > 4096 && Net.isJar(dst);
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
+    private static void downloadVerified(Fetch f, Path dst) throws Exception {
+        Exception last = null;
+        for (String u : f.urls()) {
+            try {
+                Net.download(u, dst, 10_000, 45_000);
+                if (valid(dst, f)) return;
+                // 下到半截（镜像提前断流很常见）→ 删掉换下一个源
+                Files.deleteIfExists(dst);
+                last = new IOException("文件不完整/校验失败: " + u);
+            } catch (Exception e) {
+                last = e;
+                try { Files.deleteIfExists(dst); } catch (Exception ignored) { }
+            }
+        }
+        throw last == null ? new IOException("没有可用的下载地址") : last;
+    }
+
+    private static String sha1(Path f) throws Exception {
+        var md = java.security.MessageDigest.getInstance("SHA-1");
+        try (var in = Files.newInputStream(f)) {
+            byte[] buf = new byte[64 * 1024];
+            int n;
+            while ((n = in.read(buf)) > 0) md.update(buf, 0, n);
+        }
+        StringBuilder sb = new StringBuilder();
+        for (byte b : md.digest()) sb.append(String.format("%02x", b));
+        return sb.toString();
+    }
+
+    /** 把一份清单里的 libraries（artifact + classifiers）收进 fetches。 */
+    private static void collectFetches(Map<String, Object> json, Map<String, Fetch> out) {
+        if (json == null) return;
+        for (Object o : nz(Json.arr(json.get("libraries")))) {
+            Map<String, Object> lib = Json.obj(o);
+            if (lib == null) continue;
+
+            Map<String, Object> dl = Json.obj(lib.get("downloads"));
+            Map<String, Object> art = dl == null ? null : Json.obj(dl.get("artifact"));
+            boolean got = addDownload(out, art);
+
+            Map<String, Object> cls = dl == null ? null : Json.obj(dl.get("classifiers"));
+            if (cls != null) {
+                for (Object c : cls.values()) {
+                    if (addDownload(out, Json.obj(c))) got = true;
+                }
+            }
+            if (!got) addCoord(out, Json.str(lib, "name", null));
+        }
+    }
+
+    /** downloads.artifact 里有 path/url 就用它们（url 的路径更可信），否则交给 addCoord。 */
+    private static boolean addDownload(Map<String, Fetch> out, Map<String, Object> art) {
+        if (art == null) return false;
+        String rel = Json.str(art, "path", null);
+        String url = Json.str(art, "url", null);
+        if ((rel == null || rel.isBlank()) && url == null) return false;
+
+        // path 和 url 的路径**经常不一致**，以 url 为准：
+        //   path: .../1.0.5-shadowed/accesstransformers-1.0.5-shadowed.jar   （错）
+        //   url : .../1.0.5/accesstransformers-1.0.5-shadowed.jar            （对）
+        // 但落盘位置必须按 path —— 安装器就是去那个位置找。
+        String relFromUrl = relOf(url);
+        String key = (rel == null || rel.isBlank()) ? relFromUrl : rel;
+        if (key == null) return false;
+
+        // 镜像在前、清单里的原始 url 垫底。原 url 基本都指向 maven.minecraftforge.net，
+        // 国内经常吊到读超时（120s），放第一个等于每个库都白等两分钟。
+        List<String> urls = new ArrayList<>();
+        if (relFromUrl != null) for (String u : mirrorUrls(relFromUrl)) if (!urls.contains(u)) urls.add(u);
+        if (!key.equals(relFromUrl)) for (String u : mirrorUrls(key)) if (!urls.contains(u)) urls.add(u);
+        if (url != null && !url.isBlank() && !urls.contains(url)) urls.add(url);
+
+        String sha1 = Json.str(art, "sha1", null);
+        long size = Json.num(art, "size", 0);
+        merge(out, new Fetch(key, urls, sha1, size));
+        return true;
+    }
+
+    /** 同一路径可能被 version.json 和 install_profile.json 各写一遍，合并候选地址。 */
+    private static void merge(Map<String, Fetch> out, Fetch f) {
+        Fetch old = out.get(f.rel());
+        if (old == null) { out.put(f.rel(), f); return; }
+        List<String> urls = new ArrayList<>(old.urls());
+        for (String u : f.urls()) if (!urls.contains(u)) urls.add(u);
+        String sha1 = old.sha1() != null ? old.sha1() : f.sha1();
+        long size = old.size() > 0 ? old.size() : f.size();
+        out.put(f.rel(), new Fetch(f.rel(), urls, sha1, size));
+    }
+
+    private static void addCoord(Map<String, Fetch> out, String coord) {
+        if (coord == null || coord.split(":").length < 3) return;
+        try {
+            Mvn m = Mvn.parse(coord);
+            merge(out, new Fetch(m.rel(), mirrorUrls(m.rel()), null, 0));
+        } catch (Exception ignored) { }
+    }
+
+    /** https://host/path/to/file.jar → path/to/file.jar；解析不出来返回 null。 */
+    private static String relOf(String url) {
+        if (url == null || url.isBlank()) return null;
+        try {
+            String p = java.net.URI.create(url).getPath();
+            if (p == null) return null;
+            while (p.startsWith("/")) p = p.substring(1);
+            return p.isEmpty() ? null : p;
+        } catch (Exception e) {
+            return null;
+        }
+    }
+    /** 一个相对路径的镜像候选链（IPv4 优先，最后才是官方）。 */
+    private static List<String> mirrorUrls(String rel) {
+        List<String> urls = new ArrayList<>();
+        String srcRoot = Sources.active().rootClean();
+        if (!srcRoot.isEmpty()) urls.add(srcRoot + "/maven/" + rel);
+        urls.add("https://mirrors.ustc.edu.cn/bmclapi/" + rel);
+        urls.add("https://cernet.mirrors.ustc.edu.cn/bmclapi/" + rel);
+        urls.add("https://bmclapi2.bangbang93.com/maven/" + rel);
+        urls.add("https://maven.minecraftforge.net/" + rel);
+        urls.add("https://repo1.maven.org/maven2/" + rel);
+        urls.add("https://maven.neoforged.net/releases/" + rel);
+        return urls;
+    }
+
+    private static void collectLibraries(Map<String, Object> json, Set<String> out) {
+        if (json == null) return;
+        for (Object o : nz(Json.arr(json.get("libraries")))) {
+            Map<String, Object> lib = Json.obj(o);
+            if (lib == null) continue;
+            String name = Json.str(lib, "name", null);
+            if (name != null && name.contains(":")) out.add(name);
+        }
+    }
+
+    private static List<Object> nz(List<Object> l) {
+        return l == null ? List.of() : l;
+    }
+
+    /** 安装器报错是不是「不认识这个选项」（老 Forge 没有 --installClient）。 */
+    private static boolean looksLikeUnknownOption(Exception e) {
+        String m = e.getMessage();
+        if (m == null) return false;
+        String s = m.toLowerCase(java.util.Locale.ROOT);
+        return s.contains("unrecognizedoption") || s.contains("not a recognized option") || s.contains("不认识这个选项");
+    }
+
+    /**
+     * 老一代 Forge 安装器（1.7.10 / 1.10.2，install_profile 没有 spec/processors）的客户端安装。
+     *
+     * <p>那代安装器只支持 --extract / --installServer，客户端安装是 GUI 专属操作。
+     * 但它把要做的三件事都写在 install_profile.json 里了：
+     * <ol>
+     *   <li>把 jar 里的 {@code install.filePath}（universal jar）放到
+     *       {@code libraries/<install.path 的 maven 路径>}</li>
+     *   <li>把 {@code versionInfo} 原样写成 {@code versions/<target>/<target>.json}</li>
+     *   <li>versionInfo.libraries 里的库补齐（launchwrapper / asm / guava 等）</li>
+     * </ol>
+     */
+    static String installViaLegacyProfile(Path gameDir, Path installerJar, Consumer<String> log) throws Exception {
+        try (java.util.zip.ZipFile z = new java.util.zip.ZipFile(installerJar.toFile())) {
+            String txt = zipText(z, "install_profile.json");
+            if (txt == null) throw new IOException("安装器里没有 install_profile.json");
+            Map<String, Object> prof = Json.obj(Json.parse(txt));
+
+            Map<String, Object> install = Json.obj(prof.get("install"));
+            Map<String, Object> vi = Json.obj(prof.get("versionInfo"));
+            if (install == null || vi == null) {
+                throw new IOException("这不是 legacy（spec 0）install_profile，缺 install / versionInfo");
+            }
+
+            String filePath = Json.str(install, "filePath", null);
+            String pathCoord = Json.str(install, "path", null);
+            String target = Json.str(install, "target", Json.str(vi, "id", null));
+            if (filePath == null || pathCoord == null || target == null) {
+                throw new IOException("install_profile 字段不全（filePath / path / target）");
+            }
+
+            // 1) universal jar → libraries
+            Mvn m = Mvn.parse(pathCoord);
+            Path dst = m.file(gameDir);
+            Files.createDirectories(dst.getParent());
+            java.util.zip.ZipEntry e = z.getEntry(filePath);
+            if (e == null) throw new IOException("安装器里没有 " + filePath);
+            try (var in = z.getInputStream(e)) {
+                Files.copy(in, dst, java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+            }
+            log.accept("已解出 " + filePath);
+
+            // 2) versionInfo → versions/<target>/<target>.json
+            Path verDir = gameDir.resolve("versions").resolve(target);
+            Files.createDirectories(verDir);
+            Files.writeString(verDir.resolve(target + ".json"), Json.write(vi), StandardCharsets.UTF_8);
+            log.accept("写出版本 json: versions/" + target + "/" + target + ".json");
+
+            // 3) versionInfo 里声明的库
+            Map<String, Fetch> fetches = new LinkedHashMap<>();
+            collectFetches(vi, fetches);
+            int ok = 0;
+            for (Fetch f : fetches.values()) {
+                Path lib = gameDir.resolve("libraries").resolve(f.rel());
+                try {
+                    if (valid(lib, f)) { ok++; continue; }
+                    Files.createDirectories(lib.getParent());
+                    downloadVerified(f, lib);
+                    ok++;
+                } catch (Exception ex) {
+                    log.accept("  库下载失败 " + f.rel() + "（" + ex.getMessage() + "）");
+                }
+            }
+            log.accept("已准备 " + ok + "/" + fetches.size() + " 个库");
+            return target;
+        }
+    }
     /**
      * 装完之后去 versions/ 里找刚生成的版本目录（名字里带任一 hint，多个命中取最新的）。
      * Forge/NeoForge 不同版本命名不一致，硬拼字符串会踩坑。
@@ -322,8 +660,20 @@ public final class LoaderInstaller {
         }, jar);
 
         try {
-            run(java, log, "-jar", jar.toString(),
-                    "--installClient", gameDir.toAbsolutePath().toString());
+            // 和 Forge 一样的问题：NeoForge 安装器内部也直连 maven.neoforged.net，
+            // 国内一跳超时就整个失败。先用我们自己的多源链把 version.json 里的库预取，
+            // 再让安装器 --offline 跑。
+            int prefetched = prefetchInstallerLibraries(gameDir, jar, log);
+            log.accept("已预取 " + prefetched + " 个 NeoForge 库");
+            try {
+                run(java, log, "-jar", jar.toString(),
+                        "--installClient", gameDir.toAbsolutePath().toString(), "--offline");
+            } catch (IOException offErr) {
+                log.accept("离线安装失败（" + offErr.getMessage() + "），退回在线模式");
+                run(java, log, "-jar", jar.toString(),
+                        "--installClient", gameDir.toAbsolutePath().toString(),
+                        "--mirror", "https://bmclapi2.bangbang93.com/maven/");
+            }
             String found = findFreshVersionId(gameDir, bare);
             return found != null ? found : "neoforge-" + bare;
         } catch (IOException e) {
@@ -511,12 +861,18 @@ public final class LoaderInstaller {
         }
     }
 
-    /** 同一个 artifact 的候选下载地址（当前下载源 → BMCLAPI → neoforged → forge → central）。 */
+    /** 同一个 artifact 的候选下载地址（当前下载源 → BMCLAPI 的 IPv4 镜像 → neoforged → forge → central）。 */
     private static List<String> mavenUrls(Mvn m) {
         String rel = m.rel();
         List<String> urls = new ArrayList<>();
         String srcRoot = Sources.active().rootClean();
         if (!srcRoot.isEmpty()) urls.add(srcRoot + "/maven/" + rel);
+        // BMCLAPI 的 /maven/ 会 302 到 mirrors.cernet.edu.cn → ipv6.mirrors.ustc.edu.cn，
+        // 而后者只有 AAAA 记录：机器 IPv6 不通时整条链死在 DNS 上（这就是
+        // JarJarFileSystems 一直“Connect timed out”的真相）。直接走 USTC 的 IPv4 镜像，
+        // 路径把 /maven/ 换成 /bmclapi/。
+        urls.add("https://mirrors.ustc.edu.cn/bmclapi/" + rel);
+        urls.add("https://cernet.mirrors.ustc.edu.cn/bmclapi/" + rel);
         urls.add("https://bmclapi2.bangbang93.com/maven/" + rel);
         urls.add("https://maven.minecraftforge.net/" + rel);
         urls.add("https://repo1.maven.org/maven2/" + rel);
@@ -668,6 +1024,15 @@ public final class LoaderInstaller {
                                          Consumer<String> log) throws Exception {
         ensureLauncherProfiles(gameDir);
 
+        // ofId 为 null 表示「用推荐版」：下载页没指定版本时走这里，不能直接 NPE。
+        if (ofId == null || ofId.isBlank()) {
+            log.accept("查询 OptiFine 版本…");
+            var list = LoaderVersions.optifineList(mc);
+            if (list.isEmpty()) throw new IOException("OptiFine 没有 " + mc + " 的版本");
+            ofId = list.get(0).id();
+            log.accept("选用 OptiFine " + ofId);
+        }
+
         String safe = ofId.replace('/', '_');
         Path jar = gameDir.resolve(".mcver-tmp").resolve("OptiFine_" + mc + "_" + safe + ".jar");
         Files.createDirectories(jar.getParent());
@@ -675,7 +1040,7 @@ public final class LoaderInstaller {
         download("https://bmclapi2.bangbang93.com/optifine/" + mc + "/" + ofId, jar);
 
         log.accept("静默运行 OptiFine 安装器…");
-        invokeOptifineInstaller(jar, gameDir, log);
+        invokeOptifineInstaller(jar, gameDir, mc, log);
 
         // 找出刚生成/更新的版本目录
         String id = newestOptifineVersion(gameDir, mc);
@@ -684,23 +1049,48 @@ public final class LoaderInstaller {
         return id;
     }
 
-    private static void invokeOptifineInstaller(Path jar, Path gameDir, Consumer<String> log) throws Exception {
-        // 安装器会往 stdout 打一堆 "Same:" 之类的噪音，这里只保留关键行
-        URLClassLoader cl = new URLClassLoader(
-                new URL[]{jar.toUri().toURL()},
-                LoaderInstaller.class.getClassLoader());
-        try {
-            Class<?> c = cl.loadClass("optifine.Installer");
-            Method m = c.getMethod("doInstall", java.io.File.class);
-            m.invoke(null, gameDir.toAbsolutePath().toFile());
-        } catch (java.lang.reflect.InvocationTargetException e) {
-            Throwable cause = e.getCause() == null ? e : e.getCause();
-            throw new IOException("OptiFine 安装器报错: " + cause.getMessage(), cause);
-        } finally {
-            try { cl.close(); } catch (IOException ignored) { }
-        }
+    /**
+     * 跑 OptiFine 安装器 —— **必须开子进程**。
+     *
+     * <p>1.12.2 的安装器是 Java 8 时代的类，而启动器自己通常跑在 Java 21 上；
+     * 同一个 JVM 只能有一个 Java 版本，在进程内反射调用等于用错 Java。
+     * 所以按这个 MC 版本要求的 Java 另起一个 JVM 跑 {@link OptifineRunner}。
+     */
+    private static void invokeOptifineInstaller(Path jar, Path gameDir, String mc, Consumer<String> log) throws Exception {
+        Path java = desiredJava(mc);
+        if (java == null) throw new IOException("找不到可用的 Java，跑不了 OptiFine 安装器");
+
+        // 驱动类必须是 Java 8 字节码（1.12.2 的安装器只能在 Java 8 上跑），所以它单独编成
+        // 一个 jar 放进 mod jar 当资源；这里解出来再用目标 Java 执行。
+        Path runner = gameDir.resolve(".mcver-tmp").resolve("optifine-runner.jar");
+        extractRunner(runner);
+
+        log.accept("用 " + java.getFileName() + "（" + java + "）跑 OptiFine 安装器");
+        run(java, log, "-cp", runner.toAbsolutePath().toString(), "dev.mcver.runner.OptifineRunner",
+                jar.toAbsolutePath().toString(), gameDir.toAbsolutePath().toString());
         log.accept("OptiFine 安装器执行完毕");
     }
+
+    /** 把打包进来的 optifine-runner.jar 解到磁盘（每次覆盖，保证跟当前版本一致）。 */
+    private static void extractRunner(Path dst) throws IOException {
+        Files.createDirectories(dst.getParent());
+        try (var in = LoaderInstaller.class.getResourceAsStream("/optifine-runner.jar")) {
+            if (in == null) throw new IOException("mod 里缺少 optifine-runner.jar 资源（构建时没生成？）");
+            Files.copy(in, dst, java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+        }
+    }
+
+    /** 这个 MC 版本该用哪个 Java 跑安装器（老版本 8，1.17+ 17，1.20.5+ 21）。 */
+    static Path desiredJava(String mc) {
+        int need = 8;
+        if (compareVersions(mc, "1.20.5") >= 0) need = 21;
+        else if (compareVersions(mc, "1.18") >= 0) need = 17;
+        else if (compareVersions(mc, "1.17") >= 0) need = 16;
+        Path p = JavaFinder.forMajor(need);
+        if (p != null) return p;
+        return JavaFinder.highest();
+    }
+
 
     private static String newestOptifineVersion(Path gameDir, String mc) {
         Path dir = gameDir.resolve("versions");
@@ -799,9 +1189,17 @@ public final class LoaderInstaller {
         }
     }
 
+    /**
+     * 是不是「这个主机根本连不上」。
+     *
+     * <p>注意 <b>Read timed out 不算</b>：那是连上了但慢，拉黑等于把这个主机剩下的
+     * 所有库都判死刑。1.14.4 Forge 就是这么挂的 —— maven.minecraftforge.net 第一次
+     * 读超时被拉黑，之后两个只有它有正确路径的 classifier 库就再也下不到了。
+     */
     private static boolean looksLikeNetworkFailure(String msg) {
         if (msg == null) return false;
         String m = msg.toLowerCase(java.util.Locale.ROOT);
+        if (m.contains("read timed out")) return false;
         return m.contains("timed out") || m.contains("timeout") || m.contains("connect")
                 || m.contains("unknownhost") || m.contains("unknown host") || m.contains("refused")
                 || m.contains("no route") || m.contains("network is unreachable");
@@ -878,15 +1276,25 @@ public final class LoaderInstaller {
         ProcessBuilder pb = new ProcessBuilder(cmd);
         pb.redirectErrorStream(true);
         Process proc = pb.start();
+        boolean unknownOption = false;
         try (BufferedReader r = new BufferedReader(
                 new InputStreamReader(proc.getInputStream(), StandardCharsets.UTF_8))) {
             String line;
             while ((line = r.readLine()) != null) {
-                if (!line.isBlank()) log.accept(line);
+                if (line.isBlank()) continue;
+                log.accept(line);
+                String s = line.toLowerCase(java.util.Locale.ROOT);
+                if (s.contains("unrecognizedoptionexception") || s.contains("not a recognized option")) {
+                    unknownOption = true;
+                }
             }
         }
         int code = proc.waitFor();
-        if (code != 0) throw new IOException("installer 退出码 " + code);
+        if (code != 0) {
+            // 把「不认识这个选项」这件事带出去：老 Forge 安装器没有 --installClient，
+            // 上层要靠它决定改走 legacy install_profile 流程。
+            throw new IOException("installer 退出码 " + code + (unknownOption ? "（该安装器不认识这个选项）" : ""));
+        }
     }
 
     /** 从已安装目录里找出某 MC 版本对应的 loader 版本 id（用于提示）。 */

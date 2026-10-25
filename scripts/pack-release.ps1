@@ -2,12 +2,12 @@ $ErrorActionPreference = 'Stop'
 Add-Type -AssemblyName System.IO.Compression
 Add-Type -AssemblyName System.IO.Compression.FileSystem
 
-$root = 'D:\Development\watercraft-launcher'
-$zip  = 'D:\Development\watercraft-launcher-2026-10-25.zip'
+$root = Split-Path -Parent $PSScriptRoot
+$zip  = Join-Path (Split-Path -Parent $root) ('watercraft-launcher-' + (Get-Date -Format 'yyyy-MM-dd') + '.zip')
 if (Test-Path $zip) { Remove-Item -LiteralPath $zip -Force }
 
 $excludeDirs = @('.tools','testgame','_keep','logs','build','out','.git',
-  'mod\build','mod\.gradle','mod\run','mod\config','mod\out')
+  'mod\build','mod\.gradle','mod\run','mod\config','mod\out','tools\probe\out')
 $excludeFiles = @('*.bak','*.bak2','*.bak3','*.retired-*','*.log','hs_err_pid*','*.zip',
   'config\mcver.json','mod\config\mcver.json','build-all.log')
 

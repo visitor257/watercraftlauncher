@@ -146,11 +146,42 @@ public final class InstallJob {
             detail = "安装 " + loader.label;
             log("---- 安装 " + loader.label + " " + (loaderVersion == null ? "" : loaderVersion) + " ----");
 
-            Path java = JavaFinder.forMajor(Math.max(17, r.requiredJava));
-            if (java == null) throw new Exception("找不到 Java 17+，装不了 " + loader.label);
-            log("使用 Java: " + java);
-            String id = LoaderInstaller.install(gameDir, loader, loaderVersion, versionId, java, this::log);
-            if (id != null) result = id;
+            // 安装器该用哪个 Java：先按「这个 MC 版本自己要求的」来（1.7.10 的 2014 年
+            // installer 在 Java 17/21 上会直接崩），失败再退到 17+。
+            // 以前这里写死 max(17, requiredJava)，等于强制用最新的 Java 跑老安装器。
+            String comp = (String) r.javaComponent;
+            int[] candidates = new int[]{Math.max(8, r.requiredJava), Math.max(17, r.requiredJava)};
+
+            String id = null;
+            Exception lastErr = null;
+            for (int i = 0; i < candidates.length && id == null; i++) {
+                int need = candidates[i];
+                if (i > 0 && candidates[i] == candidates[i - 1]) continue;
+                checkCancel();
+
+                Path java = JavaFinder.forMajor(need);
+                if (java == null) {
+                    log("本机没有 Java " + need + "，尝试下载官方运行时…");
+                    java = JavaRuntime.ensure(gameDir, comp, need, this::log);
+                }
+                if (java == null) {
+                    lastErr = new Exception("找不到 Java " + need + "+，也下载不到官方运行时");
+                    continue;
+                }
+                log("使用 Java: " + java);
+                try {
+                    id = LoaderInstaller.install(gameDir, loader, loaderVersion, versionId, java, this::log);
+                } catch (Exception e) {
+                    lastErr = e;
+                    if (i + 1 < candidates.length && candidates[i + 1] != need) {
+                        log("用 Java " + need + " 装失败（" + e.getMessage() + "），换更高的 Java 重试");
+                    }
+                }
+            }
+            if (id == null) {
+                throw new Exception("装不了 " + loader.label + "（" + versionId + " 要求 Java "
+                        + r.requiredJava + "）：" + (lastErr == null ? "未知原因" : lastErr.getMessage()));
+            }
         }
 
         // ---- 3) 光影加载器

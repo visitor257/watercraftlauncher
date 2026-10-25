@@ -1,10 +1,55 @@
 ﻿# 验证结果（自动生成）
 
-生成时间：2026-10-25 18:52  ·  测试目录：D:\Development\watercraftlauncher\testgame
+生成时间：2026-10-26 00:34  ·  测试目录：D:\Development\watercraftlauncher\testgame
 
 | MC | 加载器 | 光影 | 安装 | 启动 | 版本 id | 耗时 | 备注 |
 |---|---|---|---|---|---|---|---|
-| 1.21.4 | FABRIC | NONE | OK | OK | fabric-loader-0.20.1-1.21.4 | 73s |  |
+| 1.21.4 | FABRIC | NONE | OK | OK | fabric-loader-0.20.1-1.21.4 | 40s |  |
 | 1.21.4 | QUILT | NONE | OK | OK | V1.21.4-QUILT | 91s |  |
+| 1.20.1 | FABRIC | NONE | OK | OK | V1.20.1-FABRIC | 213s |  |
+| 1.20.4 | FABRIC | NONE | OK | OK | V1.20.4-FABRIC | 75s |  |
+| 1.20.5 | FABRIC | NONE | OK | OK | V1.20.5-FABRIC | 70s |  |
+| 1.20.6 | FABRIC | NONE | OK | OK | V1.20.6-FABRIC | 66s |  |
+| 1.21.1 | FABRIC | NONE | OK | OK | V1.21.1-FABRIC | 92s |  |
+| 1.21.5 | FABRIC | NONE | OK | OK | V1.21.5-FABRIC | 70s |  |
+| 1.21.8 | FABRIC | NONE | OK | OK | V1.21.8-FABRIC | 73s |  |
+| 26.1 | FABRIC | NONE | OK | OK | V26.1-FABRIC | 37s |  |
+| 1.20.1 | QUILT | NONE | OK | OK | V1.20.1-QUILT | 126s |  |
+| 1.20.1 | FORGE | NONE | OK | OK | 1.20.1-forge-47.4.28 | 101s |  |
+| 1.20.2 | FORGE | NONE | OK | OK | V1.20.2-FORGE | 211s |  |
+| 1.20.4 | FORGE | NONE | OK | OK | V1.20.4-FORGE | 199s |  |
+| 1.20.6 | FORGE | NONE | OK | OK | V1.20.6-FORGE | 356s |  |
+| 1.21.1 | FORGE | NONE | OK | OK | V1.21.1-FORGE | 190s |  |
+| 1.21.4 | FORGE | NONE | OK | OK | V1.21.4-FORGE | 184s |  |
+| 26.1 | FORGE | NONE | FAIL | - |  | 93s | IOException: installer �˳��� 1 |
+| 1.20.1 | NEOFORGE | NONE | OK | OK | V1.20.1-NEOFORGE | 164s |  |
+| 1.20.2 | NEOFORGE | NONE | OK | OK | V1.20.2-NEOFORGE | 441s |  |
+| 1.20.4 | NEOFORGE | NONE | OK | OK | V1.20.4-NEOFORGE | 131s |  |
+| 1.20.6 | NEOFORGE | NONE | OK | OK | V1.20.6-NEOFORGE | 81s |  |
+| 1.21.1 | NEOFORGE | NONE | OK | OK | V1.21.1-NEOFORGE | 381s |  |
+| 1.14 | FABRIC | NONE | OK | OK | V1.14-FABRIC | 155s |  |
+| 1.14.4 | FABRIC | NONE | OK | OK | V1.14.4-FABRIC | 40s |  |
+| 1.15.2 | FABRIC | NONE | OK | OK | V1.15.2-FABRIC | 410s |  |
+| 1.16.5 | FABRIC | NONE | OK | OK | fabric-loader-0.20.1-1.16.5 | 72s |  |
+| 1.17 | FABRIC | NONE | OK | OK | V1.17-FABRIC | 129s |  |
+| 1.18.2 | FABRIC | NONE | OK | OK | V1.18.2-FABRIC | 85s |  |
+| 1.19.4 | FABRIC | NONE | OK | OK | V1.19.4-FABRIC | 269s |  |
+| 1.14.4 | QUILT | NONE | OK | OK | V1.14.4-QUILT | 77s |  |
+| 1.18.2 | QUILT | NONE | OK | OK | V1.18.2-QUILT | 69s |  |
+| 1.14.4 | FORGE | NONE | OK | OK | V1.14.4-FORGE | 44s |  |
+| 1.16.5 | FORGE | NONE | OK | OK | V1.16.5-FORGE | 309s |  |
+| 1.17.1 | FORGE | NONE | OK | OK | V1.17.1-FORGE | 756s |  |
+| 1.18.2 | FORGE | NONE | OK | OK | V1.18.2-FORGE | 124s |  |
+| 1.19.4 | FORGE | NONE | OK | OK | V1.19.4-FORGE | 595s |  |
+| 1.21.4 | NEOFORGE | NONE | OK | OK | V1.21.4-NEOFORGE | 129s |  |
+| 1.7.10 | FORGE | NONE | OK | OK | V1.7.10-FORGE | 12s |  |
+| 1.10.2 | FORGE | NONE | OK | OK | V1.10.2-FORGE | 29s |  |
+| 1.12.2 | FORGE | NONE | OK | OK | V1.12.2-FORGE | 73s |  |
+| 1.12.2 | NONE | OPTIFINE | OK | OK | V1.12.2-NONE-OPTIFINE | 13s |  |
+| 1.19.4 | NONE | OPTIFINE | OK | OK | V1.19.4-NONE-OPTIFINE | 23s |  |
+| 1.20.1 | NONE | OPTIFINE | OK | OK | V1.20.1-NONE-OPTIFINE | 20s |  |
+| 1.21.4 | NONE | OPTIFINE | OK | OK | V1.21.4-NONE-OPTIFINE | 49s |  |
+| 1.20.1 | FABRIC | IRIS | OK | OK | V1.20.1-FABRIC-IRIS | 29s |  |
+| 1.21.4 | FABRIC | IRIS | OK | OK | V1.21.4-FABRIC-IRIS | 27s |  |
 
-L2（装 + 启）通过：**2** / 2
+L2（装 + 启）通过：**46** / 47

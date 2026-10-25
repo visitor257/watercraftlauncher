@@ -1,0 +1,2 @@
+net.neoforged:JarJarFileSystems:0.4.0@jar
+net.neoforged:neoform:1.20.4-20240627.114801@zip
