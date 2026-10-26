@@ -75,14 +75,27 @@ if (mcVerParts.size() >= 3) {
 }
 def javaDep = ">=${javaRelease}"
 
+// Fabric API 的 mod id 在 1.19 之前叫 "fabric"（bundle 里的 fabric.mod.json id 就是 fabric），
+// 1.19+ 才改成 "fabric-api"。依赖声明必须跟那个年代的 id 对得上，否则 loader 报
+// HARD_DEP_NO_CANDIDATE（实测 1.17.1 + fabric-api 0.46.1 就是）。
+// 不用命令行传，避免又碰上 Windows 吃字符的老坑；按 minecraft_version 推。
+def fabricApiId = 'fabric-api'
+if (mcVerParts.size() >= 2) {
+    def minor = mcVerParts[1] as int
+    def major = mcVerParts[0] as int
+    if (major == 1 && minor < 19) fabricApiId = 'fabric'
+}
+
 processResources {
     inputs.property "version", project.version
     inputs.property "minecraft_dep", mcDep
     inputs.property "java_dep", javaDep
+    inputs.property "fabric_api_id", fabricApiId
     filesMatching("fabric.mod.json") {
         expand "version": project.version,
                 "minecraft_dep": mcDep,
-                "java_dep": javaDep
+                "java_dep": javaDep,
+                "fabric_api_id": fabricApiId
     }
 
 }

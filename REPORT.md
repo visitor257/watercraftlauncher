@@ -1307,3 +1307,23 @@ BMCLAPI 302 → `mirrors.cernet.edu.cn` → `cernet.mirrors.ustc.edu.cn` 最后�
   因为窗口 10 秒就出来，而面板要等 atlas + 全景背景就绪。判据要绑**产品特征**（日志里的绘制标记 / 像素），不要绑时间。
 - 老版本移植的成本曲线是**反直觉**的：渲染层（Ctx）一次就够，反而是 `Text.literal` 这种
   一句话的 API 散落在 92 个地方，最费工。所以这类「到处都用」的 API 一定要先做适配层，再做下一个 target。
+
+## 三十三、2026-10-26 12:25：1.17.1 target（六个包）
+
+1.17.1 复用 1.18.2 的全部 shim，只要改三个钩子名：`onClose` / `isPauseScreen` /
+`MatrixStack.Entry#getModel()`。顺手把 `close()` / `shouldPause()` 从 MainScreen 上提到 ChromeScreen，
+并加一个跟版本无关的 `closeSelf()` 给 UI 调 —— 这样「关界面」这件事以后不会再影响任何页面代码。
+
+### 一个只有 1.17.1 会暴露的 bug
+`fabric.mod.json` 依赖写死 `"fabric-api": "*"`。但 Fabric API 在 1.19 之前的 **mod id 是 `fabric`**
+（1.17 的 bundle 里就是 `"id": "fabric"`）→ 启动直接 HARD_DEP_NO_CANDIDATE。
+现在按 minecraft_version 推 id（<1.19 → `fabric`），1.18.2 的 0.77 同时 provides fabric，两边都通。
+
+**教训**：依赖 id 也会改名。这种「同一个东西在不同年代叫不同名字」的坑，只有真的把老版本跑起来才会遇到；
+规则表/文档都救不了，只能硬跑。
+
+### 顺带的意义
+1.17.1 的实例不是手工摆的，是用**我们自己的安装器**现装的（`ProbeInstall 1.17.1 FABRIC`，
+跑生产代码 `InstallJob`，自动挑了 `jre-16.0.1-full`）。等于把「安装链路」又端到端验了一遍。
+
+六目标像素验证：15092 / 15092 / 15061 / 15349 / 15357 / 15357，中心点全 `C6C6C6`，children 全 17。

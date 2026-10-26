@@ -186,7 +186,7 @@ public class LaunchPage extends Page {
             refresh();
             host.rebuild();
         }).dimensions(x + 160, row2Y(), 44, 18).build());
-        add(Btn.builder(Txt.of("关闭"), b -> host.close())
+        add(Btn.builder(Txt.of("关闭"), b -> host.closeSelf())
                 .dimensions(x + w - 52, row2Y(), 52, 18).build());
 
         if (autoLaunch != null && !autoTried) {

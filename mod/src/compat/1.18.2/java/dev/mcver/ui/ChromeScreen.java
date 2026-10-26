@@ -1,5 +1,6 @@
 package dev.mcver.ui;
 
+import net.minecraft.client.MinecraftClient;
 import net.minecraft.client.gui.screen.Screen;
 import net.minecraft.client.util.math.MatrixStack;
 import net.minecraft.text.Text;
@@ -17,6 +18,9 @@ import net.minecraft.text.Text;
  */
 public abstract class ChromeScreen extends Screen {
 
+    /** 关界面要回哪个屏；子类构造时设。 */
+    protected Screen parentScreen;
+
     protected ChromeScreen(Text title) {
         super(title);
     }
@@ -32,7 +36,7 @@ public abstract class ChromeScreen extends Screen {
 
     @Override
     public void render(MatrixStack matrices, int mouseX, int mouseY, float delta) {
-        // 1.19.4 的 Screen.render 只遍历 drawables，**不会**调 renderBackground
+        // 1.18.2 的 Screen.render 只遍历 drawables，**不会**调 renderBackground
         // （自动调是 1.21.1 才有的行为）。不手动调就会整个面板不画、界面看起来是透明的。
         renderBackground(matrices);
         super.render(matrices, mouseX, mouseY, delta);
@@ -49,5 +53,20 @@ public abstract class ChromeScreen extends Screen {
     public boolean mouseScrolled(double mouseX, double mouseY, double vertical) {
         if (onScroll(mouseX, mouseY, 0, vertical)) return true;
         return super.mouseScrolled(mouseX, mouseY, vertical);
+    }
+
+    /** 关掉自己并回父屏（UI 代码统一调这个，不碰版本钩子名）。 */
+    public void closeSelf() {
+        MinecraftClient.getInstance().setScreen(parentScreen);
+    }
+
+    @Override
+    public void close() {
+        closeSelf();
+    }
+
+    @Override
+    public boolean shouldPause() {
+        return false;
     }
 }

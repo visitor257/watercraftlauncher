@@ -1,5 +1,6 @@
 package dev.mcver.ui;
 
+import net.minecraft.client.MinecraftClient;
 import net.minecraft.client.gui.DrawContext;
 import net.minecraft.client.gui.screen.Screen;
 import net.minecraft.text.Text;
@@ -23,6 +24,9 @@ import net.minecraft.text.Text;
  * <p>旧 target 在 {@code src/compat/<target>/java} 里整文件覆盖这个类。
  */
 public abstract class ChromeScreen extends Screen {
+
+    /** 关界面要回哪个屏；子类构造时设。1.17.1 的钩子名是 onClose()，所以这两个 override 也收在本类。 */
+    protected Screen parentScreen;
 
     protected ChromeScreen(Text title) {
         super(title);
@@ -55,5 +59,25 @@ public abstract class ChromeScreen extends Screen {
     public boolean mouseScrolled(double mouseX, double mouseY, double horizontal, double vertical) {
         if (onScroll(mouseX, mouseY, horizontal, vertical)) return true;
         return super.mouseScrolled(mouseX, mouseY, horizontal, vertical);
+    }
+
+    /**
+     * 关掉自己并回父屏。UI 代码统一调这个：游戏里的钩子名跨版本改过
+     * （1.17.1 {@code onClose} → 1.19+ {@code close}），但业务代码不该跟着改。
+     */
+    public void closeSelf() {
+        MinecraftClient.getInstance().setScreen(parentScreen);
+    }
+
+    /** 1.19+ 叫 close()（1.17.1 叫 onClose()，在 compat 里覆盖）。 */
+    @Override
+    public void close() {
+        closeSelf();
+    }
+
+    /** 1.19+ 叫 shouldPause()（1.17.1 叫 isPauseScreen()，在 compat 里覆盖）。 */
+    @Override
+    public boolean shouldPause() {
+        return false;
     }
 }

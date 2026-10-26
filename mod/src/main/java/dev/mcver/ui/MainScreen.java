@@ -38,7 +38,6 @@ public class MainScreen extends ChromeScreen {
     public static final int C_OK = 0xFF1F6B1F;
     public static final int C_WARN = 0xFF8A5A00;
 
-    private final Screen parentScreen;
     private final List<Page> pages = new ArrayList<>();
     private int active;
 
@@ -105,7 +104,7 @@ public class MainScreen extends ChromeScreen {
     @Override
     protected void init() {
         // 右上角关闭：只是把界面收起来，后台安装任务不受影响
-        addDrawableChild(Btn.builder(Txt.of("✕"), b -> this.close())
+        addDrawableChild(Btn.builder(Txt.of("✕"), b -> this.closeSelf())
                 .dimensions(px() + pw() - 16, py() + 4, 13, 13).build());
 
         int y = contentY() + 2;
@@ -186,7 +185,7 @@ public class MainScreen extends ChromeScreen {
     @Override
     public boolean keyPressed(int keyCode, int scanCode, int modifiers) {
         if (keyCode == 256 && this.shouldCloseOnEsc()) { // ESC
-            this.close();
+            this.closeSelf();
             return true;
         }
         return super.keyPressed(keyCode, scanCode, modifiers);
@@ -305,15 +304,5 @@ public class MainScreen extends ChromeScreen {
             // 同时进游戏日志：无头验证（ProbeLaunch 的 waitFor=screen=MAIN）只看得到日志
             dev.mcver.McVerMod.LOGGER.info("mcver: {}", line.trim());
         } catch (Exception ignored) { }
-    }
-
-    @Override
-    public void close() {
-        MinecraftClient.getInstance().setScreen(parentScreen);
-    }
-
-    @Override
-    public boolean shouldPause() {
-        return false;
     }
 }

@@ -10,7 +10,7 @@
 # 判据：中心点必须是 C6C6C6，且 4px 采样的命中数在 1 万以上（四个目标都稳定在 ~15000）。
 
 param(
-    [string[]]$Targets = @('1.21.4', '1.21.1', '1.20.1', '1.19.4', '1.18.2'),
+    [string[]]$Targets = @('1.21.4', '1.21.1', '1.20.1', '1.19.4', '1.18.2', '1.17.1'),
     [int]$WarmupSec = 40,
     [string]$JavaHome21 = 'D:\Program Files\Java\jdk-21.0.7'
 )
@@ -40,6 +40,11 @@ function Get-GameWindow {
         Select-Object -First 1
 }
 
+# 实例目录名默认是 V<mc>-FABRIC；1.17.1 是用我们自己安装器装的，目录名是 loader 版的
+$instanceOverride = @{
+    '1.17.1' = 'fabric-loader-0.20.1-1.17.1'
+}
+
 # Fabric API 版本（下载到 testgame\.cache，缺什么补什么）
 $fabricApi = @{
     '1.21.4' = @{ v = '0.119.4+1.21.4'; url = '' }
@@ -47,6 +52,7 @@ $fabricApi = @{
     '1.20.1' = @{ v = '0.92.2+1.20.1';  url = '' }
     '1.19.4' = @{ v = '0.87.2+1.19.4';  url = '' }
     '1.18.2' = @{ v = '0.77.0+1.18.2';  url = 'https://cdn.modrinth.com/data/P7dR8mSH/versions/qk28POfr/fabric-api-0.77.0%2B1.18.2.jar' }
+    '1.17.1' = @{ v = '0.46.1+1.17';   url = 'https://cdn.modrinth.com/data/P7dR8mSH/versions/0.46.1%2B1.17/fabric-api-0.46.1%2B1.17.jar' }
 }
 
 # Modrinth 上没现成 url 的就现查一次（查不到就报错，不静默往下走）
@@ -86,6 +92,7 @@ function Ensure-Mods([string]$id, [string]$v) {
 $results = @()
 foreach ($v in $Targets) {
     $id = "V$v-FABRIC"
+    if ($instanceOverride.ContainsKey($v)) { $id = $instanceOverride[$v] }
     if (-not (Test-Path (Join-Path $testgame "versions\$id"))) {
         Write-Host "[$v] 跳过：没有 $id" -ForegroundColor Yellow
         continue

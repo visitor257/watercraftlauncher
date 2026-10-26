@@ -227,3 +227,36 @@ et.minecraft.util.registry.Registry | core/Compat.itemId() |
 \物品已注册\、\客户端初始化完成\、\screen=MAIN\ → \chrome 已绘制\ → \首帧渲染完成\，无异常栈。
 
 产物：\dist/watercraftlauncher-fabric-1.0.0-mc1.18.2.jar\（class 61），**五个 target 全绿**。
+
+## 12. 2026-10-26：1.17.1 target（顺手补上 ChromeScreen 的「关界面/是否暂停」）
+
+1.17.1 跟 1.18.2 的渲染/文本/按钮层完全一致（shim 直接复用），多出来的只有**钩子名**差异：
+
+| 钩子 | 1.17.1 | 1.18.2 / 1.19.4 / 1.20.1 / 1.21.x |
+|---|---|---|
+| 关界面 | onClose() | close() |
+| 是否暂停 | isPauseScreen() | shouldPause() |
+| 取矩阵 | MatrixStack.Entry#getModel() | getPositionMatrix()（1.18 改名）|
+
+处理方式：ChromeScreen 里加一个跟版本无关的 closeSelf()，UI 代码只调它；
+两个版本钩子各自 override 转给它。MainScreen 里原本自己写的 close() / shouldPause()
+上提到基类 —— 否则每个 target 都得复制一遍这段。
+
+### 还修了一个真 bug（1.17.1 才暴露）
+abric.mod.json 里写死 "fabric-api": "*"，但 **Fabric API 的 mod id 在 1.19 之前叫 abric**
+（1.17 的 0.46.1 bundle 里 "id": "fabric"）。结果 1.17.1 起游戏直接
+HARD_DEP_NO_CANDIDATE mcver ... {depends fabric-api}。
+现在 uild.gradle 按 minecraft_version 推：< 1.19 用 abric，否则 abric-api
+（1.18.2 的 0.77 同时 provides: ["fabric"]，所以两边都满足）。
+
+### 验证（scripts/verify-gui.ps1，六个目标一次跑完）
+
+| 1.21.4 | 1.21.1 | 1.20.1 | 1.19.4 | 1.18.2 | 1.17.1 |
+|---|---|---|---|---|---|
+| 15092 | 15092 | 15061 | 15349 | 15357 | 15357 |
+
+中心点全是 C6C6C6，children 全是 17。1.17.1 的实例是用**我们自己的安装器**装的
+（ProbeInstall testgame 1.17.1 FABRIC，跑生产代码 InstallJob），顺带又验证了一遍安装链路：
+ersions/fabric-loader-0.20.1-1.17.1，Java 16（G:\Program Files\Java\jre-16.0.1-full）。
+
+产物：dist/watercraftlauncher-fabric-1.0.0-mc1.17.1.jar（class 60），**六个 target 全绿**。

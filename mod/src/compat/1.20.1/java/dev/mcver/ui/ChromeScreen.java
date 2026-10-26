@@ -1,5 +1,6 @@
 package dev.mcver.ui;
 
+import net.minecraft.client.MinecraftClient;
 import net.minecraft.client.gui.DrawContext;
 import net.minecraft.client.gui.screen.Screen;
 import net.minecraft.text.Text;
@@ -14,6 +15,9 @@ import net.minecraft.text.Text;
  * </ul>
  */
 public abstract class ChromeScreen extends Screen {
+
+    /** 关界面要回哪个屏；子类构造时设。 */
+    protected Screen parentScreen;
 
     protected ChromeScreen(Text title) {
         super(title);
@@ -49,5 +53,20 @@ public abstract class ChromeScreen extends Screen {
     public boolean mouseScrolled(double mouseX, double mouseY, double vertical) {
         if (onScroll(mouseX, mouseY, 0, vertical)) return true;
         return super.mouseScrolled(mouseX, mouseY, vertical);
+    }
+
+    /** 关掉自己并回父屏（UI 代码统一调这个，不碰版本钩子名）。 */
+    public void closeSelf() {
+        MinecraftClient.getInstance().setScreen(parentScreen);
+    }
+
+    @Override
+    public void close() {
+        closeSelf();
+    }
+
+    @Override
+    public boolean shouldPause() {
+        return false;
     }
 }
