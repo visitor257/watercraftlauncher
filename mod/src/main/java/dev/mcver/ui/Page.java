@@ -48,7 +48,7 @@ public abstract class Page {
     }
 
     protected void text(Ctx ctx, String s, int x, int y, int color) {
-        ctx.drawText(tr(), Text.literal(s), x, y, color, false);
+        ctx.drawText(tr(), Txt.of(s), x, y, color, false);
     }
 
     protected void text(Ctx ctx, Text t, int x, int y, int color) {
@@ -56,11 +56,11 @@ public abstract class Page {
     }
 
     protected void centered(Ctx ctx, String s, int cx, int y, int color) {
-        ctx.drawText(tr(), Text.literal(s), cx - tr().getWidth(s) / 2, y, color, false);
+        ctx.drawText(tr(), Txt.of(s), cx - tr().getWidth(s) / 2, y, color, false);
     }
 
     protected void rightAligned(Ctx ctx, String s, int rx, int y, int color) {
-        ctx.drawText(tr(), Text.literal(s), rx - tr().getWidth(s), y, color, false);
+        ctx.drawText(tr(), Txt.of(s), rx - tr().getWidth(s), y, color, false);
     }
 
     protected String trim(String s, int w) {

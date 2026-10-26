@@ -86,7 +86,7 @@ public class VersionsPage extends Page {
             boolean sel = id.equals(selected);
             boolean done = Launcher.isComplete(UiState.dir(), id);
             String label = (sel ? "▶ " : "   ") + id + (done ? "" : "   · 未完成");
-            add(ButtonWidget.builder(Text.literal(trim(label, w - 8)), b -> {
+            add(Btn.builder(Txt.of(trim(label, w - 8)), b -> {
                 selected = id;
                 renaming = false;
                 confirmingDelete = false;
@@ -97,14 +97,14 @@ public class VersionsPage extends Page {
         }
 
         if (renaming) {
-            renameField = new TextFieldWidget(this.tr(), x, bottomY(), w - 96, 18, Text.literal("新版本名"));
+            renameField = new TextFieldWidget(this.tr(), x, bottomY(), w - 96, 18, Txt.of("新版本名"));
             renameField.setMaxLength(64);
             renameField.setText(selected == null ? "" : selected);
             add(renameField);
 
-            add(ButtonWidget.builder(Text.literal("确定"), b -> applyRename())
+            add(Btn.builder(Txt.of("确定"), b -> applyRename())
                     .dimensions(x + w - 92, bottomY(), 44, 18).build());
-            add(ButtonWidget.builder(Text.literal("取消"), b -> {
+            add(Btn.builder(Txt.of("取消"), b -> {
                 renaming = false;
                 status = "";
                 host.rebuild();
@@ -115,9 +115,9 @@ public class VersionsPage extends Page {
         if (confirmingDelete) {
             int y = bottomY();
             String who = selected == null ? "" : selected;
-            add(ButtonWidget.builder(Text.literal("确定永久删除"), b -> deleteSelected())
+            add(Btn.builder(Txt.of("确定永久删除"), b -> deleteSelected())
                     .dimensions(x, y, 100, 18).build());
-            add(ButtonWidget.builder(Text.literal("取消"), b -> {
+            add(Btn.builder(Txt.of("取消"), b -> {
                 confirmingDelete = false;
                 status = "";
                 host.rebuild();
@@ -138,7 +138,7 @@ public class VersionsPage extends Page {
         for (int i = 0; i < labels.length; i++) {
             final int idx = i;
             int bx = x + i * (bw + gap);
-            add(ButtonWidget.builder(Text.literal(labels[i]), b -> {
+            add(Btn.builder(Txt.of(labels[i]), b -> {
                 switch (idx) {
                     case 0 -> {
                         if (selected == null) { status = "先选一个版本"; statusColor = MainScreen.C_ERR; return; }

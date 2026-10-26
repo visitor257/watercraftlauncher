@@ -43,7 +43,7 @@ public class MainScreen extends ChromeScreen {
     private int active;
 
     public MainScreen(Screen parent) {
-        super(Text.literal("Water Craft Launcher"));
+        super(Txt.of("Water Craft Launcher"));
         this.parentScreen = parent;
         Config.load();
         restoreDir();
@@ -105,14 +105,14 @@ public class MainScreen extends ChromeScreen {
     @Override
     protected void init() {
         // 右上角关闭：只是把界面收起来，后台安装任务不受影响
-        addDrawableChild(ButtonWidget.builder(Text.literal("✕"), b -> this.close())
+        addDrawableChild(Btn.builder(Txt.of("✕"), b -> this.close())
                 .dimensions(px() + pw() - 16, py() + 4, 13, 13).build());
 
         int y = contentY() + 2;
         for (int i = 0; i < pages.size(); i++) {
             final int idx = i;
             String label = (idx == active ? "▶" : "  ") + pages.get(i).nav();
-            addDrawableChild(ButtonWidget.builder(Text.literal(label), b -> switchTo(idx))
+            addDrawableChild(Btn.builder(Txt.of(label), b -> switchTo(idx))
                     .dimensions(px() + PAD, y, NAV_W, NAV_ITEM - 3).build());
             y += NAV_ITEM;
         }
@@ -220,7 +220,7 @@ public class MainScreen extends ChromeScreen {
             ctx.fill(ix - 22, iy - 2, ix - 2, iy + 18, 0xFF00FF00); // 定标：绿块在图标左边，不遮挡
             ctx.drawItem(st, ix - 80, iy);
             ctx.drawItem(new ItemStack(net.minecraft.item.Items.PAPER), ix - 40, iy);
-            var sid = net.minecraft.registry.Registries.ITEM.getId(st.getItem());
+            var sid = dev.mcver.core.Compat.itemId(st.getItem());
             dev.mcver.McVerMod.LOGGER.info("mcver: 图标自检 item={} stack={} paper=", sid, st);
         }
     }
@@ -276,11 +276,11 @@ public class MainScreen extends ChromeScreen {
     // ---- 文字（无阴影）
 
     private void drawText(Ctx ctx, String s, int x, int y, int color) {
-        ctx.drawText(this.textRenderer, Text.literal(s), x, y, color, false);
+        ctx.drawText(this.textRenderer, Txt.of(s), x, y, color, false);
     }
 
     private void rightAlignedText(Ctx ctx, String s, int rx, int y, int color) {
-        ctx.drawText(this.textRenderer, Text.literal(s), rx - this.textRenderer.getWidth(s), y, color, false);
+        ctx.drawText(this.textRenderer, Txt.of(s), rx - this.textRenderer.getWidth(s), y, color, false);
     }
 
     private String trim(String s, int w) {

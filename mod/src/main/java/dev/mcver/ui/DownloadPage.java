@@ -140,7 +140,7 @@ public class DownloadPage extends Page {
         int x = host.contentX();
         int w = host.contentW();
 
-        searchField = new TextFieldWidget(this.tr(), x, host.contentY() + 1, w - 54, 16, Text.literal("搜索"));
+        searchField = new TextFieldWidget(this.tr(), x, host.contentY() + 1, w - 54, 16, Txt.of("搜索"));
         searchField.setMaxLength(32);
         searchField.setText(query);
         searchField.setChangedListener(s -> {
@@ -150,7 +150,7 @@ public class DownloadPage extends Page {
         });
         add(searchField);
 
-        add(ButtonWidget.builder(Text.literal(snapshots ? "快照 ✓" : "快照"), b -> {
+        add(Btn.builder(Txt.of(snapshots ? "快照 ✓" : "快照"), b -> {
             snapshots = !snapshots;
             page = 0;
             rebuild();
@@ -163,20 +163,20 @@ public class DownloadPage extends Page {
         int ry = listTop();
         for (int i = from; i < to; i++) {
             VersionList.V v = shown.get(i);
-            add(ButtonWidget.builder(Text.literal(rowLabel(v, w - 6)), b -> enterDetail(v))
+            add(Btn.builder(Txt.of(rowLabel(v, w - 6)), b -> enterDetail(v))
                     .dimensions(x, ry, w, 14).build());
             ry += 15;
         }
 
         int y = footY();
-        add(ButtonWidget.builder(Text.literal("◀"), b -> {
+        add(Btn.builder(Txt.of("◀"), b -> {
             if (page > 0) { page--; rebuild(); }
         }).dimensions(x, y, 22, 15).build());
-        add(ButtonWidget.builder(Text.literal("▶"), b -> {
+        add(Btn.builder(Txt.of("▶"), b -> {
             if (page < pages() - 1) { page++; rebuild(); }
         }).dimensions(x + 24, y, 22, 15).build());
 
-        add(ButtonWidget.builder(Text.literal("刷新"), b -> {
+        add(Btn.builder(Txt.of("刷新"), b -> {
             versionsRequested = false;
             startVersionLoad();
             rebuild();
@@ -184,7 +184,7 @@ public class DownloadPage extends Page {
 
         // 后台还有任务在跑时，留一个回进度页的入口（不然离开进度页就没路回去了）
         if (Jobs.running()) {
-            add(ButtonWidget.builder(Text.literal("◀ 回到进度"), b -> {
+            add(Btn.builder(Txt.of("◀ 回到进度"), b -> {
                 allowListWhileRunning = false;
                 view = View.PROGRESS;
                 rebuild();
@@ -273,12 +273,12 @@ public class DownloadPage extends Page {
         int x = host.contentX();
         int w = host.contentW();
 
-        add(ButtonWidget.builder(Text.literal("◀ 返回"), b -> {
+        add(Btn.builder(Txt.of("◀ 返回"), b -> {
             view = View.LIST;
             rebuild();
         }).dimensions(x, yBack(), 46, 15).build());
 
-        nameField = new TextFieldWidget(this.tr(), x + 30, yName() - 1, w - 30, 16, Text.literal("版本名"));
+        nameField = new TextFieldWidget(this.tr(), x + 30, yName() - 1, w - 30, 16, Txt.of("版本名"));
         nameField.setMaxLength(64);
         nameField.setText(name);
         nameField.setChangedListener(s -> {
@@ -294,7 +294,7 @@ public class DownloadPage extends Page {
         for (int i = 0; i < kinds.length; i++) {
             LoaderInstaller.Kind k = kinds[i];
             boolean on = k == loader;
-            add(ButtonWidget.builder(Text.literal(on ? "▶" + k.label : k.label), b -> {
+            add(Btn.builder(Txt.of(on ? "▶" + k.label : k.label), b -> {
                 loader = k;
                 focusShader = false;
                 modSel = 0;
@@ -323,7 +323,7 @@ public class DownloadPage extends Page {
         for (int i = 0; i < shaders.length; i++) {
             LoaderInstaller.Shader s = shaders[i];
             boolean on = s == shader;
-            add(ButtonWidget.builder(Text.literal(on ? "▶" + s.label : s.label), b -> {
+            add(Btn.builder(Txt.of(on ? "▶" + s.label : s.label), b -> {
                 shader = s;
                 focusShader = s != LoaderInstaller.Shader.NONE;
                 shaderSel = 0;
@@ -339,10 +339,10 @@ public class DownloadPage extends Page {
         // 版本列表（模组加载器 / 光影，二选一显示）
         List<LoaderVersions.Lv> list = focusList();
         int pagesN = Math.max(1, (list.size() + 2) / 3);
-        add(ButtonWidget.builder(Text.literal("◀"), b -> {
+        add(Btn.builder(Txt.of("◀"), b -> {
             if (focusPage() > 0) { setFocusPage(focusPage() - 1); rebuild(); }
         }).dimensions(x + w - 46, yListHead() - 2, 20, 13).build());
-        add(ButtonWidget.builder(Text.literal("▶"), b -> {
+        add(Btn.builder(Txt.of("▶"), b -> {
             if (focusPage() < pagesN - 1) { setFocusPage(focusPage() + 1); rebuild(); }
         }).dimensions(x + w - 24, yListHead() - 2, 20, 13).build());
 
@@ -353,7 +353,7 @@ public class DownloadPage extends Page {
             LoaderVersions.Lv lv = list.get(i);
             final int idx = i;
             boolean on = (focusShader ? shaderSel : modSel) == i;
-            add(ButtonWidget.builder(Text.literal((on ? "▶ " : "   ") + trim(lv.label(), w - 26)),
+            add(Btn.builder(Txt.of((on ? "▶ " : "   ") + trim(lv.label(), w - 26)),
                     b -> {
                         if (focusShader) shaderSel = idx; else modSel = idx;
                         if (!nameEdited) {
@@ -366,9 +366,9 @@ public class DownloadPage extends Page {
         }
 
         // 安装
-        add(ButtonWidget.builder(Text.literal("开始安装"), b -> startInstall())
+        add(Btn.builder(Txt.of("开始安装"), b -> startInstall())
                 .dimensions(x, yInstall(), 74, 18).build());
-        add(ButtonWidget.builder(Text.literal("后台有任务？"), b -> {
+        add(Btn.builder(Txt.of("后台有任务？"), b -> {
             if (Jobs.hasJob()) { view = View.PROGRESS; rebuild(); }
             else { status = "现在没有后台任务"; statusColor = MainScreen.C_FAINT; rebuild(); }
         }).dimensions(x + 78, yInstall(), 86, 18).build());
@@ -540,31 +540,31 @@ public class DownloadPage extends Page {
         boolean running = job != null && job.state == InstallJob.State.RUNNING;
 
         if (running && !confirmStop) {
-            add(ButtonWidget.builder(Text.literal("终止下载"), b -> {
+            add(Btn.builder(Txt.of("终止下载"), b -> {
                 confirmStop = true;
                 rebuild();
             }).dimensions(x, host.contentBottom() - 18, 64, 16).build());
         } else if (running) {
-            add(ButtonWidget.builder(Text.literal("确认终止"), b -> {
+            add(Btn.builder(Txt.of("确认终止"), b -> {
                 InstallJob j = Jobs.install();
                 if (j != null && j.state == InstallJob.State.RUNNING) j.cancelRequested = true;
                 confirmStop = false;
                 rebuild();
             }).dimensions(x, host.contentBottom() - 18, 64, 16).build());
-            add(ButtonWidget.builder(Text.literal("不终止了"), b -> {
+            add(Btn.builder(Txt.of("不终止了"), b -> {
                 confirmStop = false;
                 rebuild();
             }).dimensions(x + 68, host.contentBottom() - 18, 64, 16).build());
         } else {
             // 跑完了 → 返回下载前的界面（从哪个版本点进来的就回哪个）
-            add(ButtonWidget.builder(Text.literal("返回"), b -> {
+            add(Btn.builder(Txt.of("返回"), b -> {
                 confirmStop = false;
                 view = picked != null ? View.DETAIL : View.LIST;
                 rebuild();
             }).dimensions(x, host.contentBottom() - 18, 64, 16).build());
         }
 
-        add(ButtonWidget.builder(Text.literal("再装一个"), b -> {
+        add(Btn.builder(Txt.of("再装一个"), b -> {
             confirmStop = false;
             // 之前这里直接 view=LIST，但 init() 发现任务还在跑又把页面拉回 PROGRESS，
             // 表现出来就是「按钮按下去没反应」。现在显式允许停在列表页。

@@ -51,7 +51,7 @@ public class JavaPage extends Page {
         int w = host.contentW();
 
         boolean auto = selected() == null;
-        add(ButtonWidget.builder(Text.literal(auto ? "▶ 自动（按版本挑）" : "  自动（按版本挑）"), b -> {
+        add(Btn.builder(Txt.of(auto ? "▶ 自动（按版本挑）" : "  自动（按版本挑）"), b -> {
             Config.javaPath = "";
             Config.save();
             status = "已改回自动：按版本要求挑 Java";
@@ -59,7 +59,7 @@ public class JavaPage extends Page {
             host.rebuild();
         }).dimensions(x, host.contentY() + 1, 118, 16).build());
 
-        add(ButtonWidget.builder(Text.literal("重新扫描"), b -> {
+        add(Btn.builder(Txt.of("重新扫描"), b -> {
             JavaFinder.invalidate();
             page = 0;
             status = "已重新扫描";
@@ -71,10 +71,10 @@ public class JavaPage extends Page {
         int pagesN = pages();
         if (page > pagesN - 1) page = pagesN - 1;
         if (page < 0) page = 0;
-        add(ButtonWidget.builder(Text.literal("◀"), b -> {
+        add(Btn.builder(Txt.of("◀"), b -> {
             if (page > 0) { page--; host.rebuild(); }
         }).dimensions(x + 122, host.contentY() + 1, 16, 16).build());
-        add(ButtonWidget.builder(Text.literal("▶"), b -> {
+        add(Btn.builder(Txt.of("▶"), b -> {
             if (page < pagesN - 1) { page++; host.rebuild(); }
         }).dimensions(x + 140, host.contentY() + 1, 16, 16).build());
 
@@ -92,7 +92,7 @@ public class JavaPage extends Page {
             String label = (on ? "▶ " : "   ") + "Java " + f.major()
                     + (f.arch() == null || f.arch().isBlank() ? "" : " " + f.arch())
                     + "   " + javaHomeName(f.exe()) + "   " + f.exe();
-            add(ButtonWidget.builder(Text.literal(trim(label, rowW - 8)), b -> {
+            add(Btn.builder(Txt.of(trim(label, rowW - 8)), b -> {
                 Config.javaPath = f.exe().toString();
                 Config.save();
                 status = "已指定 Java " + f.major();
@@ -101,7 +101,7 @@ public class JavaPage extends Page {
             }).dimensions(x, ry, rowW, 16).build());
 
             if (custom) {
-                add(ButtonWidget.builder(Text.literal("✕"), b -> {
+                add(Btn.builder(Txt.of("✕"), b -> {
                     Config.javaExtra.removeIf(s -> {
                         Path p = JavaFinder.resolveExe(s);
                         return p != null && p.toAbsolutePath().normalize().equals(f.exe().toAbsolutePath().normalize());
@@ -116,12 +116,12 @@ public class JavaPage extends Page {
             ry += 18;
         }
 
-        addField = new TextFieldWidget(this.tr(), x, footY(), w - 66, 18, Text.literal("java 路径"));
+        addField = new TextFieldWidget(this.tr(), x, footY(), w - 66, 18, Txt.of("java 路径"));
         addField.setMaxLength(260);
         addField.setText("");
         add(addField);
 
-        add(ButtonWidget.builder(Text.literal("添加"), b -> addFromField())
+        add(Btn.builder(Txt.of("添加"), b -> addFromField())
                 .dimensions(x + w - 62, footY(), 62, 18).build());
     }
 

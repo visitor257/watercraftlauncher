@@ -1274,3 +1274,36 @@ BMCLAPI 302 → `mirrors.cernet.edu.cn` → `cernet.mirrors.ustc.edu.cn` 最后�
 - 截图/像素判据要用**真实窗口**（PrintWindow）或至少等首帧渲染完；
   `ScreenshotRecorder` 在无头环境早期抓的是启动画面，很容易把人骗过去 —— 这次骗了我两轮。
 - 「父类会不会调用某个钩子」是**版本行为**，必须 javap 看字节码，不能按「一般都会」想当然。
+
+## 三十二、2026-10-26 12:10：1.18.2 target
+
+按「先硬编译，让编译器列差异」的流程走。1.18.2 的渲染差异跟 1.19.4 同源（都是 MatrixStack 时代），
+真正多出来的是三样**满地都是的小 API**：
+
+- `Text.literal` 没有（1.19 才加）→ UI 里 **92 处**；
+- `ButtonWidget.builder(...).dimensions().build()` 没有（1.19 才加）→ **72 处**；
+- `ItemGroupEvents` 没有（Fabric API 0.77 只有 `FabricItemGroupBuilder`）→ 创造栏得自建一个。
+
+做法是不让页面代码分叉：新加两个适配层 `ui/Txt` / `ui/Btn`（main 里直接转给真 API，
+1.18.2 的 compat 里换成 `Text.of` / `new ButtonWidget(...)`），再用脚本
+`scripts/rename-shims.mjs` 把 164 处调用点机械替换掉。加上 `core/Compat` 收口
+`Registries` vs `Registry`、`Session#getUuidOrNull` vs `getUuid`，剩下的都是 Ctx/ChromeScreen 一层的事。
+
+### 界面验证做成了脚本
+上一轮靠手工拼 PowerShell 抓窗口，容易看天吃饭。这轮固化成 `scripts/verify-gui.ps1`：
+起真进程 → **等日志出现 `screen=MAIN chrome`**（不再只看窗口出现）→ 再等 4 秒 → PrintWindow →
+数 `#C6C6C6`。顺手会缺什么补什么（往测试实例里拷 jar / 从 Modrinth 下对应 fabric-api）。
+
+跑出来五个目标一致：
+
+| 1.21.4 | 1.21.1 | 1.20.1 | 1.19.4 | 1.18.2 |
+|---|---|---|---|---|
+| 15092 | 15092 | 15061 | 15349 | 15357 |
+
+（命中数 = 4px 采样里面板色的个数，中心点全是 `C6C6C6`，children 全是 17。）
+
+### 教训
+- 「等窗口出现」不等于「界面画完了」：1.18.2 第一次抓就抓到全景背景（`E45962`），
+  因为窗口 10 秒就出来，而面板要等 atlas + 全景背景就绪。判据要绑**产品特征**（日志里的绘制标记 / 像素），不要绑时间。
+- 老版本移植的成本曲线是**反直觉**的：渲染层（Ctx）一次就够，反而是 `Text.literal` 这种
+  一句话的 API 散落在 92 个地方，最费工。所以这类「到处都用」的 API 一定要先做适配层，再做下一个 target。

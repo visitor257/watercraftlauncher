@@ -51,7 +51,7 @@ OptiFine 用错 Java），另外修掉 **3 个会造出假验证结果的工具�
 | 1.14.1/1.14.2/1.14.3、1.15/1.15.1、1.16.1~1.16.4、1.17 其余、1.20 其余… | 规则表判定可装，**未逐版本实测** |
 | 1.14.1/1.14.2/1.14.3、1.15/1.15.1、1.16.1~1.16.4、1.17 其余、1.20 其余… | 规则表判定可装，**未逐版本实测** |
 | 快照 / 愚人节版 | 未跑（Fabric/Quilt 规则表标 MAYBE）|
-| mod 本体 | 只出 1.21.4 / 1.21.1 / 1.20.1 / 1.19.4 四个包 |
+| mod 本体 | 只出 1.21.4 / 1.21.1 / 1.20.1 / 1.19.4 / **1.18.2** 五个包（见 §11）|
 
 > 若要把「全版本」这三个字用起来，得按加载器把 192 个组合各装一遍（估 10+ 小时机器时间）。
 > 现在的口径是**断层覆盖**，不是全量验证。
@@ -189,3 +189,41 @@ OptiFine 用错 Java），另外修掉 **3 个会造出假验证结果的工具�
   而 `drawChrome` 当时写在 `renderBackground` 里 → 面板一次都没画。已在两个 compat 的 `render` 里手动调，
   并用真实窗口 PrintWindow 抓图确认：1.19.4 / 1.20.1 / 1.21.4 中心点都是 `C6C6C6`，命中≈15000 采样（一致）。
 - 产物：`dist/watercraftlauncher-fabric-1.0.0-mc1.19.4.jar`（class 版本 61），**四个 target 全绿**（1.19.4 / 1.20.1 / 1.21.1 / 1.21.4）。
+
+## 11. 2026-10-26：1.18.2 target（顺手把 UI 里 164 处版本强绑定 API 收了）
+
+1.18.2 比 1.19.4 又早一步，DrawContext 当然没有，但**真正贵的不是渲染**，是下面这三样：
+
+| 差异 | 1.19.4 | 1.18.2 | 处理 |
+|---|---|---|---|
+| Text.literal(String) | 有 | **没有**（只有 Text.of / 
+ew LiteralText）| 新增 ui/Txt.of 适配层，main 里 **92 处**改调它 |
+| ButtonWidget.builder(...) | 有 | **没有**（只能 
+ew ButtonWidget(x,y,w,h,text,onPress)）| 新增 ui/Btn.builder 适配层，**72 处**改调它 |
+| 注册表入口 | 
+et.minecraft.registry.Registries | 
+et.minecraft.util.registry.Registry | core/Compat.itemId() |
+| Session#getUuidOrNull() | 有 | 没有（getUuid() 直接返回 String）| core/Compat.sessionUuid() |
+| TextRenderer#draw 第 8 参 | TextLayerType 枚举 | oolean seeThrough | 写进 compat/1.18.2/ui/Ctx.java |
+| ItemRenderer#renderInGui | 收 MatrixStack | **不收**（走 RenderSystem 模型矩阵）| 同上，屏幕渲染时矩阵是单位矩阵，坐标不用换算 |
+| ItemGroupEvents（塞创造栏）| 有 | 没有（Fabric API 0.77 只有 FabricItemGroupBuilder）| 1.18.2 自建一个「Water Craft Launcher」创造栏 |
+| 配方 json | 有 "category" | **没有** "category" 字段（会被当解析错误）| compat 资源层单独一份 |
+
+> 教训：**版本越老，贵的越不是渲染，而是「到处都用到的小 API」**。所以这轮先把 164 处调用点
+> 用脚本（\scripts/rename-shims.mjs\）机械替换成 Txt.of / Btn.builder，再让编译器指路。
+> 这两个适配层对 1.17.1 / 1.16.5 同样是必需的，属于一次性投资。
+
+### 验证（\scripts/verify-gui.ps1\，真实窗口 PrintWindow）
+
+| 版本 | 窗口中心点 | #C6C6C6 命中（4px 采样）| children | 结论 |
+|---|---|---|---|---|
+| 1.21.4 | C6C6C6 | 15092 | 17 | OK |
+| 1.21.1 | C6C6C6 | 15092 | 17 | OK |
+| 1.20.1 | C6C6C6 | 15061 | 17 | OK |
+| 1.19.4 | C6C6C6 | 15349 | 17 | OK |
+| **1.18.2** | **C6C6C6** | **15357** | **17** | **OK** |
+
+日志另外确认 1.18.2：\Loading Minecraft 1.18.2 with Fabric Loader 0.20.1\、\- mcver 1.0.0\、
+\物品已注册\、\客户端初始化完成\、\screen=MAIN\ → \chrome 已绘制\ → \首帧渲染完成\，无异常栈。
+
+产物：\dist/watercraftlauncher-fabric-1.0.0-mc1.18.2.jar\（class 61），**五个 target 全绿**。

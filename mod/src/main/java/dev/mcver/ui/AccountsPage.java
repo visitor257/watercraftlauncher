@@ -69,7 +69,7 @@ public class AccountsPage extends Page {
             Account a = list.get(i);
             boolean sel = a.name.equals(selectedName);
             String label = (sel ? "▶ " : "   ") + a.label();
-            add(ButtonWidget.builder(Text.literal(trim(label, w - 8)), b -> {
+            add(Btn.builder(Txt.of(trim(label, w - 8)), b -> {
                 selectedName = a.name;
                 status = "";
                 host.rebuild();
@@ -82,17 +82,17 @@ public class AccountsPage extends Page {
 
         if (msWaiting) {
             // ---- 微软登录进行中：只留「复制 / 打开 / 取消」
-            add(ButtonWidget.builder(Text.literal("复制代码"), b -> {
+            add(Btn.builder(Txt.of("复制代码"), b -> {
                 if (device != null) MinecraftClient.getInstance().keyboard.setClipboard(device.userCode);
                 status = "代码已复制";
                 statusColor = MainScreen.C_OK;
             }).dimensions(x, btnRowY(), 66, 18).build());
 
-            add(ButtonWidget.builder(Text.literal("打开浏览器"), b -> openUri(
+            add(Btn.builder(Txt.of("打开浏览器"), b -> openUri(
                     device == null ? "https://www.microsoft.com/link" : device.verifyUri))
                     .dimensions(x + 70, btnRowY(), 78, 18).build());
 
-            add(ButtonWidget.builder(Text.literal("取消"), b -> {
+            add(Btn.builder(Txt.of("取消"), b -> {
                 msCancel = true;
                 msWaiting = false;
                 device = null;
@@ -104,19 +104,19 @@ public class AccountsPage extends Page {
         }
 
         // ---- 离线：名字 + 按钮
-        nameField = new TextFieldWidget(this.tr(), x + 28, nameRowY(), 108, 16, Text.literal("玩家名"));
+        nameField = new TextFieldWidget(this.tr(), x + 28, nameRowY(), 108, 16, Txt.of("玩家名"));
         nameField.setMaxLength(16);
         nameField.setText(suggestName());
         add(nameField);
 
-        add(ButtonWidget.builder(Text.literal("离线登录"), b -> addOffline())
+        add(Btn.builder(Txt.of("离线登录"), b -> addOffline())
                 .dimensions(x + 140, nameRowY(), 64, 16).build());
 
-        add(ButtonWidget.builder(Text.literal("微软登录"), b -> startMicrosoft())
+        add(Btn.builder(Txt.of("微软登录"), b -> startMicrosoft())
                 .dimensions(x, btnRowY(), 78, 18).build());
 
         boolean hasSel = findSelected() != null;
-        add(ButtonWidget.builder(Text.literal("设为当前"), b -> {
+        add(Btn.builder(Txt.of("设为当前"), b -> {
             Account a = findSelected();
             if (a != null) {
                 Config.setAccount(a);
@@ -126,14 +126,14 @@ public class AccountsPage extends Page {
             }
         }).dimensions(x + 82, btnRowY(), 70, 18).build());
 
-        add(ButtonWidget.builder(Text.literal("删除"), b -> removeSelected())
+        add(Btn.builder(Txt.of("删除"), b -> removeSelected())
                 .dimensions(x + 156, btnRowY(), 44, 18).build());
 
         // 分页（账号多了用）
-        add(ButtonWidget.builder(Text.literal("◀"), b -> {
+        add(Btn.builder(Txt.of("◀"), b -> {
             if (page > 0) { page--; host.rebuild(); }
         }).dimensions(x + w - 72, btnRowY(), 18, 18).build());
-        add(ButtonWidget.builder(Text.literal("▶"), b -> {
+        add(Btn.builder(Txt.of("▶"), b -> {
             if (page < listPages() - 1) { page++; host.rebuild(); }
         }).dimensions(x + w - 18, btnRowY(), 18, 18).build());
     }

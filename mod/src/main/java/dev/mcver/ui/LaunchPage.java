@@ -106,17 +106,17 @@ public class LaunchPage extends Page {
         int w = host.contentW();
 
         // ---- 目录行 [◀][名字][▶][＋]
-        add(ButtonWidget.builder(Text.literal("◀"), b -> stepDir(-1))
+        add(Btn.builder(Txt.of("◀"), b -> stepDir(-1))
                 .dimensions(x, dirRowY(), 16, 16).build());
         String label = (dirs.size() > 1 ? "" : "") + Dirs.shortLabel(UiState.dir());
-        add(ButtonWidget.builder(Text.literal(trim(label, w - 60)), b -> {
+        add(Btn.builder(Txt.of(trim(label, w - 60)), b -> {
             view = View.DIRS;
             dirStatus = "";
             host.rebuild();
         }).dimensions(x + 18, dirRowY(), w - 56, 16).build());
-        add(ButtonWidget.builder(Text.literal("▶"), b -> stepDir(1))
+        add(Btn.builder(Txt.of("▶"), b -> stepDir(1))
                 .dimensions(x + w - 38, dirRowY(), 16, 16).build());
-        add(ButtonWidget.builder(Text.literal("＋"), b -> {
+        add(Btn.builder(Txt.of("＋"), b -> {
             view = View.DIRS;
             dirStatus = "";
             host.rebuild();
@@ -135,7 +135,7 @@ public class LaunchPage extends Page {
             String id = versions.get(i);
             boolean sel = id.equals(selected);
             String rowLabel = (sel ? "▶ " : "   ") + id;
-            add(ButtonWidget.builder(Text.literal(trim(rowLabel, w - 8)), b -> {
+            add(Btn.builder(Txt.of(trim(rowLabel, w - 8)), b -> {
                 selected = id;
                 status = "";
                 host.rebuild();
@@ -152,7 +152,7 @@ public class LaunchPage extends Page {
         unfinishedY = (ry + 12 <= statusY()) ? ry + 2 : -1;
 
         // ---- 第一行：内存 + 启动后行为
-        memField = new TextFieldWidget(this.tr(), x + 24, row1Y(), 44, 16, Text.literal("内存"));
+        memField = new TextFieldWidget(this.tr(), x + 24, row1Y(), 44, 16, Txt.of("内存"));
         memField.setMaxLength(5);
         memField.setText(String.valueOf(memMb));
         memField.setChangedListener(s -> {
@@ -168,25 +168,25 @@ public class LaunchPage extends Page {
         });
         add(memField);
 
-        add(ButtonWidget.builder(Text.literal(closeAfter ? "启动后关当前 ✓" : "启动后关当前"),
+        add(Btn.builder(Txt.of(closeAfter ? "启动后关当前 ✓" : "启动后关当前"),
                 b -> {
                     closeAfter = !closeAfter;
                     Config.closeAfterLaunch = closeAfter;
                     Config.save();
-                    b.setMessage(Text.literal(closeAfter ? "启动后关当前 ✓" : "启动后关当前"));
+                    b.setMessage(Txt.of(closeAfter ? "启动后关当前 ✓" : "启动后关当前"));
                 }).dimensions(x + w - 100, row1Y(), 100, 16).build());
 
         // ---- 第二行：动作
-        add(ButtonWidget.builder(Text.literal("启动"), b -> doLaunch())
+        add(Btn.builder(Txt.of("启动"), b -> doLaunch())
                 .dimensions(x, row2Y(), 72, 18).build());
-        add(ButtonWidget.builder(Text.literal("下载版本"), b -> openWizard())
+        add(Btn.builder(Txt.of("下载版本"), b -> openWizard())
                 .dimensions(x + 76, row2Y(), 80, 18).build());
-        add(ButtonWidget.builder(Text.literal("刷新"), b -> {
+        add(Btn.builder(Txt.of("刷新"), b -> {
             refreshDirs();
             refresh();
             host.rebuild();
         }).dimensions(x + 160, row2Y(), 44, 18).build());
-        add(ButtonWidget.builder(Text.literal("关闭"), b -> host.close())
+        add(Btn.builder(Txt.of("关闭"), b -> host.close())
                 .dimensions(x + w - 52, row2Y(), 52, 18).build());
 
         if (autoLaunch != null && !autoTried) {
@@ -273,12 +273,12 @@ public class LaunchPage extends Page {
         int x = host.contentX();
         int w = host.contentW();
 
-        add(ButtonWidget.builder(Text.literal("◀ 返回"), b -> {
+        add(Btn.builder(Txt.of("◀ 返回"), b -> {
             view = View.MAIN;
             host.rebuild();
         }).dimensions(x, host.contentY() + 1, 46, 16).build());
 
-        add(ButtonWidget.builder(Text.literal(Dirs.isScanning() ? "扫描中…" : "扫描磁盘"), b -> {
+        add(Btn.builder(Txt.of(Dirs.isScanning() ? "扫描中…" : "扫描磁盘"), b -> {
             Dirs.scanAsync(p -> MinecraftClient.getInstance().execute(() -> {
                 if (view == View.DIRS) {
                     refreshDirs();
@@ -298,7 +298,7 @@ public class LaunchPage extends Page {
             boolean sel = p.equals(UiState.dir());
             boolean pinned = isPinned(p);
             final int rowW = pinned ? w - 16 : w;
-            add(ButtonWidget.builder(Text.literal(trim((sel ? "▶ " : "   ") + p, rowW - 8)), b -> {
+            add(Btn.builder(Txt.of(trim((sel ? "▶ " : "   ") + p, rowW - 8)), b -> {
                 withDir(p);
                 view = View.MAIN;
                 dirStatus = "已切换到 " + p;
@@ -306,7 +306,7 @@ public class LaunchPage extends Page {
                 host.rebuild();
             }).dimensions(x, ry, rowW, 16).build());
             if (pinned) {
-                add(ButtonWidget.builder(Text.literal("✕"), b -> {
+                add(Btn.builder(Txt.of("✕"), b -> {
                     if (p.equals(UiState.dir())) {
                         dirStatus = "当前目录不能移出列表";
                         dirStatusColor = MainScreen.C_ERR;
@@ -323,12 +323,12 @@ public class LaunchPage extends Page {
         }
 
         int y = host.contentBottom() - 18;
-        dirField = new TextFieldWidget(this.tr(), x, y, w - 66, 18, Text.literal("目录路径"));
+        dirField = new TextFieldWidget(this.tr(), x, y, w - 66, 18, Txt.of("目录路径"));
         dirField.setMaxLength(260);
         dirField.setText("");
         add(dirField);
 
-        add(ButtonWidget.builder(Text.literal("添加"), b -> addDirFromField())
+        add(Btn.builder(Txt.of("添加"), b -> addDirFromField())
                 .dimensions(x + w - 62, y, 62, 18).build());
     }
 
@@ -455,7 +455,7 @@ public class LaunchPage extends Page {
             token = acc.accessToken.isEmpty() ? "0" : acc.accessToken;
         } else {
             player = s.getUsername();
-            uuid = s.getUuidOrNull() == null ? "0" : s.getUuidOrNull().toString().replace("-", "");
+            uuid = dev.mcver.core.Compat.sessionUuid() == null ? "0" : dev.mcver.core.Compat.sessionUuid();
             token = s.getAccessToken();
         }
 

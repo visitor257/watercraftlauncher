@@ -1,5 +1,7 @@
 package dev.mcver;
 
+import dev.mcver.ui.Txt;
+
 import dev.mcver.core.Config;
 import dev.mcver.ui.MainScreen;
 import dev.mcver.ui.UiState;
@@ -102,7 +104,7 @@ public class McVerClient implements ClientModInitializer {
     static void chat(String s) {
         MinecraftClient mc = MinecraftClient.getInstance();
         if (mc.inGameHud != null) {
-            mc.inGameHud.getChatHud().addMessage(Text.literal(s));
+            mc.inGameHud.getChatHud().addMessage(Txt.of(s));
         }
     }
 }

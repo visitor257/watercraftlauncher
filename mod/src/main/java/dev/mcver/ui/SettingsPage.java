@@ -71,9 +71,9 @@ public class SettingsPage extends Page {
 
         javaFieldPlaceholder(x, w);
 
-        add(ButtonWidget.builder(Text.literal(fullscreen ? "全屏 ✓" : "窗口"), b -> {
+        add(Btn.builder(Txt.of(fullscreen ? "全屏 ✓" : "窗口"), b -> {
             fullscreen = !fullscreen;
-            b.setMessage(Text.literal(fullscreen ? "全屏 ✓" : "窗口"));
+            b.setMessage(Txt.of(fullscreen ? "全屏 ✓" : "窗口"));
             // 立即落盘：不然切页/重建后 init() 会从 Config 把勾选状态读回去（等于白勾）
             Config.fullscreen = fullscreen;
             Config.save();
@@ -84,25 +84,25 @@ public class SettingsPage extends Page {
         bindInt(wField, () -> Config.winWidth, v -> Config.winWidth = v, 320, 7680);
         bindInt(hField, () -> Config.winHeight, v -> Config.winHeight = v, 240, 4320);
 
-        add(ButtonWidget.builder(Text.literal("保存"), b -> save())
+        add(Btn.builder(Txt.of("保存"), b -> save())
                 .dimensions(x, rowY(5), 56, 18).build());
 
-        add(ButtonWidget.builder(Text.literal(isolation ? "版本隔离 ✓" : "版本隔离"), b -> {
+        add(Btn.builder(Txt.of(isolation ? "版本隔离 ✓" : "版本隔离"), b -> {
             isolation = !isolation;
-            b.setMessage(Text.literal(isolation ? "版本隔离 ✓" : "版本隔离"));
+            b.setMessage(Txt.of(isolation ? "版本隔离 ✓" : "版本隔离"));
             // 立即落盘（同上）：以前只改页内变量，切个页就“勾不见了”
             Config.defaultIsolation = isolation;
             Config.save();
             status = isolation ? "版本隔离已开（新装版本默认隔离）" : "版本隔离已关";
         }).dimensions(x + 60, rowY(5), 86, 18).build());
 
-        add(ButtonWidget.builder(Text.literal(sourceLabel()), b -> {
+        add(Btn.builder(Txt.of(sourceLabel()), b -> {
             view = View.SOURCES;
             status = "";
             host.rebuild();
         }).dimensions(x + 150, rowY(5), 66, 18).build());
 
-        add(ButtonWidget.builder(Text.literal("恢复默认"), b -> {
+        add(Btn.builder(Txt.of("恢复默认"), b -> {
             Config.memMb = 4096;
             Config.jvmArgs = "";
             Config.gameArgs = "";
@@ -120,9 +120,9 @@ public class SettingsPage extends Page {
         // ---- 游戏目录
         // 右边两个按钮占 [w-130, w]：输入框宽必须留出这 130px（以前 w-128 直接盖住「检测」）
         dirField = field(x + 40, rowY(6), w - 174, UiState.dir().toString(), 260);
-        add(ButtonWidget.builder(Text.literal("设为目录"), b -> setDir())
+        add(Btn.builder(Txt.of("设为目录"), b -> setDir())
                 .dimensions(x + w - 84, rowY(6), 84, 18).build());
-        add(ButtonWidget.builder(Text.literal("检测"), b -> {
+        add(Btn.builder(Txt.of("检测"), b -> {
             if (Dirs.known().isEmpty()) {
                 status = "没扫到常见目录";
                 return;
@@ -134,7 +134,7 @@ public class SettingsPage extends Page {
 
     /** Java 这一行改成「只看不改」：真正的列表在「Java」页。 */
     private void javaFieldPlaceholder(int x, int w) {
-        add(ButtonWidget.builder(Text.literal("选择…"), b -> host.switchTo("Java"))
+        add(Btn.builder(Txt.of("选择…"), b -> host.switchTo("Java"))
                 .dimensions(x + w - 44, rowY(3), 44, 18).build());
     }
 
@@ -159,7 +159,7 @@ public class SettingsPage extends Page {
     }
 
     private TextFieldWidget field(int x, int y, int w, String value, int max) {
-        TextFieldWidget f = new TextFieldWidget(this.tr(), x, y, w, 18, Text.literal(""));
+        TextFieldWidget f = new TextFieldWidget(this.tr(), x, y, w, 18, Txt.of(""));
         f.setMaxLength(max);
         f.setText(value == null ? "" : value);
         add(f);
@@ -240,13 +240,13 @@ public class SettingsPage extends Page {
         int x = host.contentX();
         int w = host.contentW();
 
-        add(ButtonWidget.builder(Text.literal("◀ 返回"), b -> {
+        add(Btn.builder(Txt.of("◀ 返回"), b -> {
             view = View.MAIN;
             status = "";
             host.rebuild();
         }).dimensions(x, host.contentY() + 1, 46, 16).build());
 
-        add(ButtonWidget.builder(Text.literal("＋ BMCLAPI"), b -> {
+        add(Btn.builder(Txt.of("＋ BMCLAPI"), b -> {
             Sources.add(Sources.BMCLAPI.name(), Sources.BMCLAPI.root());
             // 加完直接启用，省一步
             Sources.setActive(Sources.BMCLAPI.name());
@@ -264,13 +264,13 @@ public class SettingsPage extends Page {
             boolean on = s.name().equalsIgnoreCase(active.name());
             boolean builtin = s.official();
             int rowW = builtin ? w : w - 16;
-            add(ButtonWidget.builder(Text.literal(trim((on ? "▶ " : "   ") + s.label(), rowW - 6)), b -> {
+            add(Btn.builder(Txt.of(trim((on ? "▶ " : "   ") + s.label(), rowW - 6)), b -> {
                 Sources.setActive(s.name());
                 status = "已切到 " + s.name();
                 host.rebuild();
             }).dimensions(x, ry, rowW, 16).build());
             if (!builtin) {
-                add(ButtonWidget.builder(Text.literal("✕"), b -> {
+                add(Btn.builder(Txt.of("✕"), b -> {
                     Sources.remove(s.name());
                     if (Sources.active().official()) Sources.setActive("");
                     status = "已删除 " + s.name();
@@ -281,17 +281,17 @@ public class SettingsPage extends Page {
         }
 
         int y = host.contentBottom() - 36;
-        srcNameField = new TextFieldWidget(this.tr(), x, y, 76, 16, Text.literal("名字"));
+        srcNameField = new TextFieldWidget(this.tr(), x, y, 76, 16, Txt.of("名字"));
         srcNameField.setMaxLength(24);
         srcNameField.setText("");
         add(srcNameField);
 
-        srcUrlField = new TextFieldWidget(this.tr(), x + 80, y, w - 80 - 48, 16, Text.literal("镜像根地址"));
+        srcUrlField = new TextFieldWidget(this.tr(), x + 80, y, w - 80 - 48, 16, Txt.of("镜像根地址"));
         srcUrlField.setMaxLength(200);
         srcUrlField.setText("");
         add(srcUrlField);
 
-        add(ButtonWidget.builder(Text.literal("添加"), b -> addSource())
+        add(Btn.builder(Txt.of("添加"), b -> addSource())
                 .dimensions(x + w - 44, y, 44, 16).build());
 
         // 自检钩子：MCVER_SRC_ADD="名字|根地址" → 自动走一遍添加
