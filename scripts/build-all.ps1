@@ -62,6 +62,9 @@ Write-Host "Gradle: $gradle" -ForegroundColor Cyan
 
 $targets = @(
     @{ name = '1.21.4'; mc = '1.21.4'; yarn = '1.21.4+build.8'; api = '0.119.4+1.21.4'; compat = '';       java = '21' },
+    @{ name = '1.21.11'; mc = '1.21.11'; yarn = '1.21.11+build.6'; api = '0.141.6+1.21.11'; compat = '1.21.9'; java = '21' },
+    @{ name = '1.21.10'; mc = '1.21.10'; yarn = '1.21.10+build.3'; api = '0.138.4+1.21.10'; compat = '1.21.9'; java = '21' },
+    @{ name = '1.21.9';  mc = '1.21.9';  yarn = '1.21.9+build.1';  api = '0.134.1+1.21.9';  compat = '1.21.9'; java = '21' },
     @{ name = '1.21.1'; mc = '1.21.1'; yarn = '1.21.1+build.3'; api = '0.116.17+1.21.1'; compat = '1.21.1'; java = '21' },
     @{ name = '1.20.1'; mc = '1.20.1'; yarn = '1.20.1+build.10'; api = '0.92.2+1.20.1';  compat = '1.20.1'; java = '17' },
     @{ name = '1.19.4'; mc = '1.19.4'; yarn = '1.19.4+build.2';  api = '0.87.2+1.19.4';  compat = '1.19.4'; java = '17' },

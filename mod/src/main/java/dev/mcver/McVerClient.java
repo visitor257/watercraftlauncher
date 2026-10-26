@@ -63,8 +63,13 @@ public class McVerClient implements ClientModInitializer {
         if (System.getenv("MCVER_OPEN_GUI") != null) {
             ClientTickEvents.END_CLIENT_TICK.register(new ClientTickEvents.EndTick() {
                 private boolean done;
+                private Object lastScreen;
                 @Override
                 public void onEndTick(MinecraftClient client) {
+                    if (client.currentScreen != lastScreen) {
+                        lastScreen = client.currentScreen;
+                        McVerMod.LOGGER.info("mcver: cur=" + (lastScreen == null ? "null" : lastScreen.getClass().getName()));
+                    }
                     if (done || !(client.currentScreen instanceof TitleScreen)) return;
                     done = true;
                     openMain();

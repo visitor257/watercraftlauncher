@@ -1,0 +1,154 @@
+plugins {
+    id 'fabric-loom' version '1.9.2'
+    id 'java'
+}
+
+version = project.mod_version
+group = project.maven_group
+
+base {
+    archivesName = project.archives_base_name
+}
+
+// 产物文件名：watercraftlauncher-<loaders>-<version>-mc<minecraft>.jar
+// Gradle 默认会把 version 拼在最后，所以要直接指定 archiveFileName
+// 注意：sourcesJar / remapSourcesJar 是后面才创建的，必须用 lazy 配置
+def artifactName = "${project.archives_base_name}-${project.mod_loader}-${project.version}-mc${project.minecraft_version}"
+
+tasks.matching { it.name == "jar" || it.name == "remapJar" }.configureEach {
+    archiveFileName = "${artifactName}.jar"
+}
+tasks.matching { it.name == "sourcesJar" || it.name == "remapSourcesJar" }.configureEach {
+    archiveFileName = "${artifactName}-sources.jar"
+}
+
+repositories {
+    mavenCentral()
+    maven { url = 'https://maven.fabricmc.net/' }
+    maven { url = 'https://api.modrinth.com/maven' }
+}
+
+dependencies {
+    minecraft "com.mojang:minecraft:${project.minecraft_version}"
+    mappings "net.fabricmc:yarn:${project.yarn_mappings}:v2"
+    modImplementation "net.fabricmc:fabric-loader:${project.loader_version}"
+    modImplementation "net.fabricmc.fabric-api:fabric-api:${project.fabric_api_version}"
+}
+
+// ---- 多版本支持：src/compat/<compat>/java 里放“整文件覆盖”
+// 用法：gradle build -Pcompat=1.21.1 -Pminecraft_version=1.21.1 ...
+// 覆盖目录里的同名源码会替代 src/main/java 里的那份，不用维护 N 份完整副本。
+def compatName = (project.findProperty("compat") ?: "").toString().trim()
+if (!compatName.isEmpty()) {
+    def overlayDir = file("src/compat/${compatName}/java")
+    if (overlayDir.exists()) {
+        def mainJava = file('src/main/java')
+        def overridden = fileTree(overlayDir).files.collect { it.absolutePath - (overlayDir.absolutePath + File.separator) }
+        sourceSets.main.java.srcDir overlayDir
+        sourceSets.main.java.exclude { d -> overridden.contains(d.file.absolutePath - (mainJava.absolutePath + File.separator)) }
+        println "[compat] 覆盖 ${overridden.size()} 个文件：${overridden.join(', ')}"
+    } else {
+        throw new GradleException("找不到兼容层目录：${overlayDir}")
+    }
+    // 资源层：data/ 目录名、模型 json 格式这些跨版本也会变（1.20.1 是 recipes/，1.21 是 recipe/）
+    def overlayRes = file("src/compat/${compatName}/resources")
+    if (overlayRes.exists()) {
+        sourceSets.main.resources.srcDir overlayRes
+        println "[compat] 追加资源目录：${overlayRes}"
+    }
+}
+
+// 每个 target 的 Java 字节码版本（1.21 → 21，1.20.x → 17）
+def javaRelease = (project.findProperty("java_release") ?: "21").toString().trim().toInteger()
+
+// fabric.mod.json 的依赖声明从 minecraft_version / java_release 算出来，不走命令行参数：
+// Windows 下 `-Pjava_dep=>=17` 这种值会被 shell 的 `>` 吃掉（实测变成空字符串）。
+// 上界卡在本版本之后的那一个补丁号：1.20.1 → ">=1.20.1 <1.20.2"，1.21.4 → ">=1.21.4 <1.21.5"。
+// 这是故意的：相邻补丁版本可能又改了 API（1.21.2 就改了 UseItemCallback），宁可加载不上也别崩。
+def mcVerParts = project.minecraft_version.toString().trim().tokenize('.')
+def mcDep
+if (mcVerParts.size() >= 3) {
+    def upper = "${mcVerParts[0]}.${mcVerParts[1]}.${(mcVerParts[2] as int) + 1}"
+    mcDep = ">=${project.minecraft_version} <${upper}"
+} else {
+    mcDep = ">=${project.minecraft_version}"
+}
+def javaDep = javaRelease <= 8 ? ">=1.8" : ">=${javaRelease}"
+
+// Fabric API 的 mod id 在 1.19 之前叫 "fabric"（bundle 里的 fabric.mod.json id 就是 fabric），
+// 1.19+ 才改成 "fabric-api"。依赖声明必须跟那个年代的 id 对得上，否则 loader 报
+// HARD_DEP_NO_CANDIDATE（实测 1.17.1 + fabric-api 0.46.1 就是）。
+// 不用命令行传，避免又碰上 Windows 吃字符的老坑；按 minecraft_version 推。
+def fabricApiId = 'fabric-api'
+if (mcVerParts.size() >= 2) {
+    def minor = mcVerParts[1] as int
+    def major = mcVerParts[0] as int
+    if (major == 1 && minor < 19) fabricApiId = 'fabric'
+}
+
+processResources {
+    inputs.property "version", project.version
+    inputs.property "minecraft_dep", mcDep
+    inputs.property "java_dep", javaDep
+    inputs.property "fabric_api_id", fabricApiId
+    filesMatching("fabric.mod.json") {
+        expand "version": project.version,
+                "minecraft_dep": mcDep,
+                "java_dep": javaDep,
+                "fabric_api_id": fabricApiId
+    }
+
+}
+
+tasks.withType(JavaCompile).configureEach {
+    it.options.encoding = "UTF-8"
+    // 例外：OptiFine 驱动必须编成 Java 8 字节码（见下面 compileRunner）
+    if (it.name != "compileRunner") it.options.release = javaRelease
+}
+
+// ---- OptiFine 驱动 ----
+// 1.12.2 / 1.19.4 的 OptiFine 安装器只能跑在「那个年代」的 Java 上，而 mod 本体是
+// Java 21 字节码。所以驱动类单独编成 release 8，打成 optifine-runner.jar 放进 jar 资源，
+// 运行时解出来用对应 Java 起子进程执行（core/LoaderInstaller#invokeOptifineInstaller）。
+def runnerClasses = layout.buildDirectory.dir("runner-classes")
+
+tasks.register("compileRunner", JavaCompile) {
+    source = fileTree("runner") { include "**/*.java" }
+    classpath = files()
+    destinationDirectory = runnerClasses
+    options.encoding = "UTF-8"
+    options.release = 8
+    options.compilerArgs.addAll(["-Xlint:-options", "-nowarn"])
+}
+
+tasks.register("runnerJar", Jar) {
+    dependsOn "compileRunner"
+    archiveFileName = "optifine-runner.jar"
+    destinationDirectory = layout.buildDirectory.dir("runner")
+    from runnerClasses
+}
+
+// processResources 在上面已经声明过了，这里补上资源（必须在 runnerJar 注册之后）
+tasks.named("processResources").configure {
+    from(tasks.named("runnerJar"))
+}
+
+java {
+    withSourcesJar()
+    sourceCompatibility = JavaVersion.toVersion(javaRelease)
+    targetCompatibility = JavaVersion.toVersion(javaRelease)
+}
+
+jar {
+    // 里面那份 LICENSE 用短名，别用带版本号的 archivesName
+    from("LICENSE") { rename { "${it}_${project.archives_base_name}" } }
+}
+
+// 开发时窗口开大一点，方便看 UI 布局
+loom {
+    runs {
+        client {
+            programArgs "--width", "1280", "--height", "720"
+        }
+    }
+}

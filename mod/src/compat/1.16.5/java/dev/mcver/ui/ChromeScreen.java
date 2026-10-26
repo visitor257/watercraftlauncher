@@ -79,4 +79,14 @@ public abstract class ChromeScreen extends Screen {
     public boolean isPauseScreen() {
         return false;
     }
+
+    /** 键盘：UI 层只 override 这个；1.21.11 的 KeyInput 差异在它自己的 compat 里。 */
+    protected boolean keyPressedDefault(int keyCode, int scanCode, int modifiers) {
+        return super.keyPressed(keyCode, scanCode, modifiers);
+    }
+
+    @Override
+    public boolean keyPressed(int keyCode, int scanCode, int modifiers) {
+        return keyPressedDefault(keyCode, scanCode, modifiers);
+    }
 }

@@ -1432,3 +1432,43 @@ Java 8 兼容做完后，下一步本来是 1.12.2 的 UI。查了一下发现�
 4. **1.12.2 的 mod 本体不是重写**：26 个 MC 类里 16 个同名（legacy yarn 用的是现代命名风格），
    缺的主要是渲染（无 MatrixStack）、注册表、控件基类。spike 已编译 + remapJar 通过。
    真障碍是工具链：loom 1.16 要 Gradle 9，而 Legacy API 聚合包是 loom 1.15.3 打的。
+
+## 三十七、2026-10-26 18:4x：1.21.9 / 1.21.10 / 1.21.11（10 个 jar）
+
+### 决策
+用户回「你决定」。选最新三个正式版：玩家最多，而且不用碰 1.20.5 的组件系统断层。
+
+### 结果
+- **一份 compat 盖三个版本**（`src/compat/1.21.9`，目录名取这一代最老的版本号，
+  里面写了 README 说明为什么能共用）。
+- API 差异只有 3 处：`Screen#keyPressed(KeyInput)`、`KeyBinding.Category`、`screenshot` 多一个 int。
+- 像素验证：1.21.9 = **15097** / 1.21.10 = **15096** / 1.21.11 = **15096**，
+  中心全 `C6C6C6`，`children=17`。
+- `dist/` 现在 **10 个 jar**（1.16.5 / 1.17.1 / 1.18.2 / 1.19.4 / 1.20.1 / 1.21.1 / 1.21.4 / 1.21.9 / 1.21.10 / 1.21.11）。
+
+### 架构改动
+`MainScreen` 不再 `@Override keyPressed`，改为实现 `ChromeScreen#keyPressedDefault(int,int,int)`；
+版本相关的 `keyPressed` 签名只出现在 compat 层。5 个旧 target 的 ChromeScreen 用
+`scripts/add-key-hook.mjs` 批量补钩子。这样再加「键盘又改了」的版本时，MainScreen 不用动。
+
+### 工具链
+loom `1.9.2` → **`1.13.6`**（Gradle 8.14.2 能用的最高档；1.14.9 起要 Gradle 9.2）。
+中间两个坑：1.9.2 报 `Unsupported unpick version`；1.11.8 报 fabric-api 的
+`Javadoc ... must have an intermediary source namespace`。10 个 target 全绿。
+
+### 验证脚本自己出问题（最值得记的一条）
+本轮 90% 的时间花在「验证脚本说谎」上，而不是产品代码：
+1. `( | Where-Object {...}).Count` 只命中一个对象时是 `` → `-gt 0` 为假 →
+   **FAIL 却打印「界面验证全部通过。」**。必须 `@()`。
+2. `children=` 恒为 `-`：游戏进程活着时日志独占写，`Select-String` 静默读空。
+   改成先抓图、杀进程、再读日志，并且把 `children` 纳入判定。
+3. `` 取在「窗口出现之后」，而日志在启动后 2~5 秒就创建 → 过滤条件永远为假 →
+   找不到本轮日志（表现为「警告：没找到本轮日志」+ children 为空）。基准移到 `Start-Process` 之前。
+4. 1.21.9+ 首次启动先弹 `AccessibilityOnboardingScreen`（日志里是 `class_8032`），
+   自检钩子只认 `TitleScreen` → 永远等不到界面。验证脚本现在先关掉
+   `options.txt#onboardAccessibility`。
+
+### 调试手法
+自检钩子不触发时，「没有 screen=MAIN」不提供任何信息。加一行 `mcver: cur=<类名>`（仅
+`MCVER_OPEN_GUI` 时打，屏幕变了才打），一次就抓到 `class_8032`——
+**以后新 target 界面起不来，先打印 currentScreen 类名。**

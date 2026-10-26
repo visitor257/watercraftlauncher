@@ -180,13 +180,14 @@ public class MainScreen extends ChromeScreen {
         return pages.get(active).mouseScrolled(mouseX, mouseY, horizontal, vertical);
     }
 
+    /** ESC 关界面。签名差异在 ChromeScreen 的 keyPressedDefault 里处理掉了。 */
     @Override
-    public boolean keyPressed(int keyCode, int scanCode, int modifiers) {
+    protected boolean keyPressedDefault(int keyCode, int scanCode, int modifiers) {
         if (keyCode == 256 && this.shouldCloseOnEsc()) { // ESC
             this.closeSelf();
             return true;
         }
-        return super.keyPressed(keyCode, scanCode, modifiers);
+        return super.keyPressedDefault(keyCode, scanCode, modifiers);
     }
 
     // ================================================================ 渲染

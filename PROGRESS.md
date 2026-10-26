@@ -461,3 +461,49 @@ spike 里写了个覆盖这些点的类，在 **loom 1.11.8 + legacy-looming 1.1
    Fabric loader 找不到类 → `ClassNotFoundException`。必须手写 `ZipArchive`，把 `\` 换成 `/`。
 2. **`Get-Content -Raw` 默认按 ANSI 读**，改 `fabric.mod.json`（含中文 description）会把 UTF-8 读成乱码再写回 →
    `MalformedJsonException: Unterminated object`。要用 `-Encoding UTF8` 或干脆用 node 改。
+
+## 16. 2026-10-26 晚上：1.21.9 / 1.21.10 / 1.21.11 三个新 target（10 个 jar）
+
+用户说「你决定」，选的是**最新三个版本**（人多，且不用碰 1.20.5 的组件断层）。
+
+### 先说结论
+三个版本**共用一份 compat**（`src/compat/1.21.9`），因为它们之间零 API 差异。
+真窗口像素验证：1.21.9 = 15097 / 1.21.10 = 15096 / 1.21.11 = 15096，中心全 `C6C6C6`，`children=17`。
+
+### 三个版本到底差在哪（只有 3 处，编译器报错照抄）
+| 报错 | 差异 | 处理 |
+|---|---|---|
+| `method keyPressed in class Screen cannot be applied to given types; required: KeyInput` | 1.21.9 起 `Screen#keyPressed` 从 `(int,int,int)` 变成 `keyPressed(KeyInput)` | `ChromeScreen` 里把 `KeyInput` 拆成三个 int，交给新的 `keyPressedDefault` |
+| `incompatible types: String cannot be converted to Category` | `new KeyBinding(...)` 第 4 个参数变成 `KeyBinding.Category`（record） | `KeyBinding.Category.create(Identifier.of("mcver","main"))` |
+| `no suitable method found for saveScreenshot(File,String,Framebuffer,(t)->{})` | `ScreenshotRecorder.saveScreenshot` 多了第 4 个 int（缩放倍数） | `Compat.saveScreenshot` 传 `1` |
+
+### 顺手把「键盘」也上提到 ChromeScreen（沿用 1.19.4 的教训）
+之前 `MainScreen` 自己 `@Override keyPressed(int,int,int)`。这次换了签名，等于每个 target 都得复制 MainScreen。
+现在：`ChromeScreen` 提供 `keyPressedDefault(int,int,int)`（稳定签名），版本相关的 `keyPressed` 只在 compat 层出现。
+5 个旧 target 的 ChromeScreen 由 `scripts/add-key-hook.mjs` 一次性补上。
+
+### 工具链：loom 1.9.2 → 1.13.6（Gradle 8.14.2 能用的最高档）
+- loom 1.9.2：`Unsupported unpick version`（mappings 格式改了）
+- loom 1.11.8：`Javadoc provided by mod (fabric-content-registries-v0) must have an intermediary source namespace`
+- loom 1.15.3：要求 Gradle 9.2（`org.gradle.plugin.api-version 9.2.0`）→ 本仓库 8.14.2 装不上
+- **loom 1.13.6（api-version 8.14）**：可用。10 个 target 全部 BUILD SUCCESSFUL。
+
+### 验证脚本里揪出 3 个「假通过 / 假失败」的坑（都修了）
+1. **`( | Where-Object {...}).Count` 在只命中一个对象时返回 ``**
+   （PS 5.1，PSCustomObject 没有 Count 属性）→ `-gt 0` 为假 → 明明 FAIL 还打印「界面验证全部通过。」
+   **必须 `@(...)` 包一层。** 这是本项目最怕的那类 bug：验证脚本自己撒谎。
+2. **`children=` 永远读成 `-`**：解析发生在游戏进程还活着时，日志被独占写，`Select-String` 读不到
+   （`-ErrorAction SilentlyContinue` 把异常吞成空）。改成**先抓图 → 杀进程 → 再读日志**，
+   并且 `children` 现在参与判定（`-ne '-'`）。
+3. **时间基准放错位置**：为了排除上一轮遗留日志，加了 `CreationTime >= launchedAt` 过滤，
+   但 `` 是在「窗口出现之后」取的 —— 日志 2~5 秒就创建、窗口 15~20 秒才出现，
+   于是永远「太早」被过滤掉。基准必须在 **Start-Process 之前**。
+4. 另外：**1.21.9+ 首次启动会先弹 `AccessibilityOnboardingScreen`**（日志里是 `net.minecraft.class_8032`，
+   yarn 映射到 `client/gui/screen/AccessibilityOnboardingScreen`），自检钩子只认 `TitleScreen`，
+   所以永远等不到界面。`verify-gui.ps1` 现在启动前把 `options.txt` 的 `onboardAccessibility` 改成 `false`
+   （只改这一行，其它原样保留）。**这不是产品 bug**，真人会点掉引导；但验证必须可复现。
+
+### 排查手法（值得记）
+自检钩子不触发时，光看「没有 screen=MAIN」什么也判断不出来。加了一行 `mcver: cur=<类名>` 日志，
+每换一次屏幕打一次 —— 一跑就抓到 `class_8032` = 无障碍引导屏。
+**以后新 target 起不来界面，先打印 currentScreen 类名，别猜。**

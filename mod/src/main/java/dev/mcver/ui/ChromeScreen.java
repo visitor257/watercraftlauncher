@@ -15,7 +15,9 @@ import net.minecraft.text.Text;
  *   <li>背景渲染：1.21.4 是 {@code renderBackground(DrawContext, int, int, float)}，
  *       1.20.x 是 {@code renderBackground(DrawContext)}，
  *       1.19.4 是 {@code renderBackground(MatrixStack, int, int, float)}；</li>
- *   <li>滚轮回调：1.20.2+ 才有横向参数（4 个参数），更早只有 3 个。</li>
+ *   <li>滚轮回调：1.20.2+ 才有横向参数（4 个参数），更早只有 3 个；</li>
+ *   <li>键盘回调：1.21.11 起变成 {@code keyPressed(KeyInput)}（一个参数），
+ *       更早是 {@code keyPressed(int keyCode, int scanCode, int modifiers)}。</li>
  * </ul>
  *
  * <p>这几个 override 全部收在本类里，子类只实现 {@link #drawChrome(Ctx)}（背景与面板）
@@ -72,6 +74,20 @@ public abstract class ChromeScreen extends Screen {
     /** 清空控件：1.17+ 叫 {@code clearChildren()}，1.16.5 只能直接清 buttons 列表。 */
     protected void clearWidgets() {
         clearChildren();
+    }
+
+    /**
+     * 键盘：子类实现这个，不要直接 override {@code keyPressed}。
+     * 1.21.11 把签名换成了 {@code keyPressed(KeyInput)}，那是本层的事，不该漏到 UI 里。
+     */
+    protected boolean keyPressedDefault(int keyCode, int scanCode, int modifiers) {
+        return super.keyPressed(keyCode, scanCode, modifiers);
+    }
+
+    /** 1.21.4 及更早：三个 int。1.21.11 在 compat 里整文件覆盖。 */
+    @Override
+    public boolean keyPressed(int keyCode, int scanCode, int modifiers) {
+        return keyPressedDefault(keyCode, scanCode, modifiers);
     }
 
     /**
