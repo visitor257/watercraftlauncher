@@ -30,4 +30,11 @@ public final class Compat {
         String uuid = session.getUuid();
         return uuid == null ? null : uuid.replace("-", "");
     }
+
+    /** 存一张截图（自检用）。1.17+ 的类叫 ScreenshotRecorder，参数是 Framebuffer。 */
+    public static void saveScreenshot(String name) {
+        var mc = MinecraftClient.getInstance();
+        net.minecraft.client.util.ScreenshotRecorder.saveScreenshot(
+                mc.runDirectory, name, mc.getFramebuffer(), t -> { });
+    }
 }

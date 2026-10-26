@@ -104,14 +104,14 @@ public class MainScreen extends ChromeScreen {
     @Override
     protected void init() {
         // 右上角关闭：只是把界面收起来，后台安装任务不受影响
-        addDrawableChild(Btn.builder(Txt.of("✕"), b -> this.closeSelf())
+        addWidget(Btn.builder(Txt.of("✕"), b -> this.closeSelf())
                 .dimensions(px() + pw() - 16, py() + 4, 13, 13).build());
 
         int y = contentY() + 2;
         for (int i = 0; i < pages.size(); i++) {
             final int idx = i;
             String label = (idx == active ? "▶" : "  ") + pages.get(i).nav();
-            addDrawableChild(Btn.builder(Txt.of(label), b -> switchTo(idx))
+            addWidget(Btn.builder(Txt.of(label), b -> switchTo(idx))
                     .dimensions(px() + PAD, y, NAV_W, NAV_ITEM - 3).build());
             y += NAV_ITEM;
         }
@@ -134,13 +134,13 @@ public class MainScreen extends ChromeScreen {
     }
 
     public void rebuild() {
-        this.clearChildren();
+        this.clearWidgets();
         this.init();
     }
 
-    /** 给 Page 用的公开入口（addDrawableChild 是 protected）。 */
+    /** 给 Page 用的公开入口（基类的 addWidget 是 protected）。 */
     public <T extends ClickableWidget> T add(T w) {
-        return addDrawableChild(w);
+        return addWidget(w);
     }
 
     // ================================================================ 事件
@@ -163,9 +163,7 @@ public class MainScreen extends ChromeScreen {
 
     private void shot(String name) {
         try {
-            MinecraftClient mc = MinecraftClient.getInstance();
-            net.minecraft.client.util.ScreenshotRecorder.saveScreenshot(
-                    mc.runDirectory, name, mc.getFramebuffer(), t -> { });
+            dev.mcver.core.Compat.saveScreenshot(name);
             dev.mcver.McVerMod.LOGGER.info("mcver: shot saved {}", name);
         } catch (Throwable e) {
             System.err.println("[mcver] 截图失败: " + e);

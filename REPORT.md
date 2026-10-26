@@ -1327,3 +1327,27 @@ BMCLAPI 302 → `mirrors.cernet.edu.cn` → `cernet.mirrors.ustc.edu.cn` 最后�
 跑生产代码 `InstallJob`，自动挑了 `jre-16.0.1-full`）。等于把「安装链路」又端到端验了一遍。
 
 六目标像素验证：15092 / 15092 / 15061 / 15349 / 15357 / 15357，中心点全 `C6C6C6`，children 全 17。
+
+## 三十四、2026-10-26 12:40：1.16.5 target（编译 + 界面都过，但卡在 Java 版本门槛）
+
+1.16.5 的渲染层跟 1.17.1 一样（compat 直接抄），真正多出来的是一圈**周边 API**：
+slf4j 没了（这年代用 log4j2）、`addDrawableChild` → `addChild`、`clearChildren` → 直接清 buttons、
+`setScreen` → `openScreen`、`isOf` → `getItem() ==`、`ScreenshotRecorder` → `ScreenshotUtils`。
+
+收口方式：新增 `core/Log`（两个实现：slf4j / log4j2，都是 `info/warn/error/debug(String, Object...)`），
+`ChromeScreen` 加 `addWidget` / `clearWidgets`，`Compat` 加 `saveScreenshot`。
+一共只动 9 个调用点，页面代码一行没改。
+
+### 结果
+`dist/watercraftlauncher-fabric-1.0.0-mc1.16.5.jar` 编译通过，界面也验过（19754 命中，中心 C6C6C6，children 17）。
+**但**：原版 1.16.5 声明 javaVersion=8，玩家默认拿 Java 8 起，而我们的 jar 是 Java 17 字节码
+（`Files.writeString` / `isBlank` / `var` / `List.of` 一百多处）→ loader 直接
+`HARD_DEP_INCOMPATIBLE_PRESELECTED` 把 mod 挡掉。把实例钉到 Java 17 就一切正常。
+
+### 教训
+- 「编译通过 + 界面能画」还不够，**运行时的 Java 门槛**也是一道门。这次的证据链差一点就停在「编译成功」。
+  探针第一次起 1.16.5 用的就是 jre-1.8，日志里那句话才把真相说出来。
+- 老版本移植真正的成本不在渲染，而在**这些零碎的基础设施**（日志库、控件 API、Java 版本）。
+  Java 8 兼容这一刀（~117 处）现在是 1.16.5 和 1.12.2 的共同前置，值得单独当一件事做，而不是顺手。
+
+七目标像素验证：15092 / 15092 / 15061 / 15349 / 15357 / 15357 / 19754，中心全 `C6C6C6`。

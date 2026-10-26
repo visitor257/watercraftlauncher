@@ -26,6 +26,16 @@ public abstract class ChromeScreen extends Screen {
     /** 面板底、标题栏、导航分隔线，由子类画。 */
     protected abstract void drawChrome(Ctx ctx);
 
+    /** 加一个控件（各版本钩子名不同，统一走这里；见 1.16.5 那份）。 */
+    protected <T extends net.minecraft.client.gui.widget.ClickableWidget> T addWidget(T w) {
+        return addDrawableChild(w);
+    }
+
+    /** 清空控件。 */
+    protected void clearWidgets() {
+        clearChildren();
+    }
+
     /** 页内容。父类已经画完背景和控件，这里只补自己的东西。 */
     protected abstract void renderContent(Ctx ctx, int mouseX, int mouseY, float delta);
 

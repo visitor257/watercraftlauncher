@@ -260,3 +260,41 @@ HARD_DEP_NO_CANDIDATE mcver ... {depends fabric-api}。
 ersions/fabric-loader-0.20.1-1.17.1，Java 16（G:\Program Files\Java\jre-16.0.1-full）。
 
 产物：dist/watercraftlauncher-fabric-1.0.0-mc1.17.1.jar（class 60），**六个 target 全绿**。
+
+## 13. 2026-10-26：1.16.5 target —— 差一步「Java 8 源码兼容」
+
+1.16.5 的渲染 / 文本 / 按钮层跟 1.17.1 完全一致（compat 直接复用），真正的差异是**周边 API**：
+
+| 差异 | 1.17.1 | 1.16.5 |
+|---|---|---|
+| 日志 | slf4j（Fabric 带进来）| **log4j2，类路径上没有 slf4j** |
+| 加控件 | ddDrawableChild(T) | ddChild(T) |
+| 清空控件 | clearChildren() | 没有 → 直接 uttons.clear() |
+| 切界面 | setScreen(Screen) | openScreen(Screen) |
+| 物品比对 | stack.isOf(Item) | stack.getItem() == item |
+| 截图 | ScreenshotRecorder | ScreenshotUtils（要自己传宽高）|
+| 取矩阵 | Entry#getModel() | 同（1.18 才改名）|
+
+做法：新增 core/Log（slf4j / log4j2 两个实现）、ChromeScreen.addWidget/clearWidgets、
+Compat.saveScreenshot，把 9 个调用点收口。**编译已通过，GUI 也验过了（19754 命中，中心 C6C6C6）**。
+
+### 但有个真问题：Java 版本门槛
+原版 1.16.5 声明 javaVersion = 8，玩家默认用 Java 8 起。而我们这个 jar 是 **Java 17 字节码**
+（Files.writeString / String.isBlank / ar / List.of 这些 Java 9~11 的 API 用了一百多处）。
+实测：Java 8 上 loader 0.20.1 能起来，但我们的 mod 直接被
+HARD_DEP_INCOMPATIBLE_PRESELECTED ... {depends java @ [>=17]} 挡掉；钉到 Java 17 就一切正常。
+
+两条路（**待拍板**）：
+1. **做 Java 8 源码兼容**：ar(31) / Files.writeString(14) / isBlank()(56) / List.of(15) / Map.of(1)
+   共 ~117 处，机械但容易出错；好处是 1.12.2 也能用同一套。
+2. **维持 Java 17**：发布时写明「1.16.5 需要 Java 17」，并在启动器里对装了本 mod 的 1.16.5 实例把 javaVersion 抬到 17。
+
+产物：dist/watercraftlauncher-fabric-1.0.0-mc1.16.5.jar（class 61）。
+
+### 七目标像素验证（scripts/verify-gui.ps1）
+
+| 1.21.4 | 1.21.1 | 1.20.1 | 1.19.4 | 1.18.2 | 1.17.1 | 1.16.5 |
+|---|---|---|---|---|---|---|
+| 15092 | 15092 | 15061 | 15349 | 15357 | 15357 | 19754 |
+
+中心点全是 C6C6C6，children 全是 17。（1.16.5 命中更多是因为它的原版背景更亮，面板像素占比更高。）

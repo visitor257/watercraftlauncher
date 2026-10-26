@@ -520,7 +520,7 @@ public class DownloadPage extends Page {
         if (env("MCVER_AUTO_CLOSE") != null) {
             new Thread(() -> {
                 try { Thread.sleep(4000); } catch (InterruptedException ignored) { }
-                minecraft().execute(() -> minecraft().setScreen(null));
+                minecraft().execute(() -> host.closeSelf());
             }, "mcver-autoclose").start();
         }
     }

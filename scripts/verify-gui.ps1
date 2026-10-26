@@ -7,10 +7,12 @@
 #   - 无头环境下 ScreenshotRecorder 早期抓到的是启动画面，会骗人；
 #   - 所以这里起真进程 → 等够首帧 → PrintWindow 抓真窗口 → 数 #C6C6C6（面板色）。
 #
-# 判据：中心点必须是 C6C6C6，且 4px 采样的命中数在 1 万以上（四个目标都稳定在 ~15000）。
+# 注意：1.16.5 这个实例的 version json 里 javaVersion 被改成了 17。
+# 原版 1.16.5 声明要 Java 8，但本 mod 是 Java 17 字节码（见 PROGRESS §13 的取舍），
+# 而且在 Java 8 上 loader 0.20.1 也跑得起 —— 所以不手动钉 17 就永远看不到界面。
 
 param(
-    [string[]]$Targets = @('1.21.4', '1.21.1', '1.20.1', '1.19.4', '1.18.2', '1.17.1'),
+    [string[]]$Targets = @('1.21.4', '1.21.1', '1.20.1', '1.19.4', '1.18.2', '1.17.1', '1.16.5'),
     [int]$WarmupSec = 40,
     [string]$JavaHome21 = 'D:\Program Files\Java\jdk-21.0.7'
 )
@@ -53,6 +55,7 @@ $fabricApi = @{
     '1.19.4' = @{ v = '0.87.2+1.19.4';  url = '' }
     '1.18.2' = @{ v = '0.77.0+1.18.2';  url = 'https://cdn.modrinth.com/data/P7dR8mSH/versions/qk28POfr/fabric-api-0.77.0%2B1.18.2.jar' }
     '1.17.1' = @{ v = '0.46.1+1.17';   url = 'https://cdn.modrinth.com/data/P7dR8mSH/versions/0.46.1%2B1.17/fabric-api-0.46.1%2B1.17.jar' }
+    '1.16.5' = @{ v = '0.42.0+1.16';   url = 'https://cdn.modrinth.com/data/P7dR8mSH/versions/0.42.0%2B1.16/fabric-api-0.42.0%2B1.16.jar' }
 }
 
 # Modrinth 上没现成 url 的就现查一次（查不到就报错，不静默往下走）

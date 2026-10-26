@@ -3,6 +3,7 @@ package dev.mcver.ui;
 import net.minecraft.client.MinecraftClient;
 import net.minecraft.client.gui.DrawContext;
 import net.minecraft.client.gui.screen.Screen;
+import net.minecraft.client.gui.widget.ClickableWidget;
 import net.minecraft.text.Text;
 
 /**
@@ -34,7 +35,6 @@ public abstract class ChromeScreen extends Screen {
 
     /** 面板底、标题栏、导航分隔线，由子类画。 */
     protected abstract void drawChrome(Ctx ctx);
-
     /** 页内容。父类已经画完背景和控件，这里只补自己的东西。 */
     protected abstract void renderContent(Ctx ctx, int mouseX, int mouseY, float delta);
 
@@ -59,6 +59,19 @@ public abstract class ChromeScreen extends Screen {
     public boolean mouseScrolled(double mouseX, double mouseY, double horizontal, double vertical) {
         if (onScroll(mouseX, mouseY, horizontal, vertical)) return true;
         return super.mouseScrolled(mouseX, mouseY, horizontal, vertical);
+    }
+
+    /**
+     * 加一个控件。游戏里的方法名跨版本改过：
+     * 1.17+ 是 {@code addDrawableChild}，1.16.5 是 {@code addChild}。
+     */
+    protected <T extends ClickableWidget> T addWidget(T w) {
+        return addDrawableChild(w);
+    }
+
+    /** 清空控件：1.17+ 叫 {@code clearChildren()}，1.16.5 只能直接清 buttons 列表。 */
+    protected void clearWidgets() {
+        clearChildren();
     }
 
     /**

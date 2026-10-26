@@ -7,8 +7,6 @@ import net.minecraft.item.ItemGroups;
 import net.minecraft.registry.Registries;
 import net.minecraft.registry.Registry;
 import net.minecraft.util.Identifier;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 /**
  * 1.19.4 兼容层。
@@ -22,7 +20,7 @@ import org.slf4j.LoggerFactory;
 public class McVerMod implements ModInitializer {
 
     public static final String MOD_ID = "mcver";
-    public static final Logger LOGGER = LoggerFactory.getLogger(MOD_ID);
+    public static final dev.mcver.core.Log LOGGER = new dev.mcver.core.Log(MOD_ID);
 
     public static final Identifier ITEM_ID = new Identifier(MOD_ID, "download_tool");
 

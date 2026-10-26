@@ -9,14 +9,12 @@ import net.minecraft.registry.Registry;
 import net.minecraft.registry.RegistryKey;
 import net.minecraft.registry.RegistryKeys;
 import net.minecraft.util.Identifier;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 /** 公共初始化：只干一件事——注册那个物品。 */
 public class McVerMod implements ModInitializer {
 
     public static final String MOD_ID = "mcver";
-    public static final Logger LOGGER = LoggerFactory.getLogger(MOD_ID);
+    public static final dev.mcver.core.Log LOGGER = new dev.mcver.core.Log(MOD_ID);
 
     public static final Identifier ITEM_ID = Identifier.of(MOD_ID, "download_tool");
 
