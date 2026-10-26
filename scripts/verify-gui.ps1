@@ -12,13 +12,35 @@
 # 而且在 Java 8 上 loader 0.20.1 也跑得起 —— 所以不手动钉 17 就永远看不到界面。
 
 param(
-    [string[]]$Targets = @('1.21', '1.21.1', '1.21.2', '1.21.3', '1.21.4', '1.21.5', '1.21.6', '1.21.7', '1.21.8', '1.21.9', '1.21.10', '1.21.11', '1.20.1', '1.19.4', '1.18.2', '1.17.1', '1.16.5'),
+    [string[]]$Targets = @(),
     [int]$WarmupSec = 40,
-    [string]$JavaHome21 = 'D:\Program Files\Java\jdk-21.0.7'
+    [string]$JavaHome21 = 'D:\Program Files\Java\jdk-21.0.7',
+    # 跳过（实例不存在）默认算失败；确实只跑一部分时显式打开
+    [switch]$AllowSkip
 )
 
-# -File 模式下 "1.21,1.21.1" 会当成一个字符串传进来，这里自己拆开
-$Targets = @($Targets | ForEach-Object { $_ -split '[,\s]+' } | Where-Object { $_ -ne '' })
+# 两个来源合并：
+#   - 环境变量 MCVER_TARGETS（推荐）。-File 模式下 1.20 会被 PowerShell 当数字变成 1.2，
+#     走环境变量就完全不经过参数绑定，不会有这个问题。
+#   - 显式 -Targets（注意别传结尾是 0 的版本号）。
+# 默认清单：只在没给任何指定时用（**不做并集**，否则只想跑几个版本时会顺带跑完整个清单）
+$defaultTargets = @(
+    '1.21', '1.21.1', '1.21.2', '1.21.3', '1.21.4', '1.21.5', '1.21.6', '1.21.7', '1.21.8', '1.21.9', '1.21.10', '1.21.11',
+    '1.20', '1.20.1', '1.20.2', '1.20.3', '1.20.4', '1.20.5', '1.20.6',
+    '1.19', '1.19.1', '1.19.2', '1.19.3', '1.19.4',
+    '1.18', '1.18.1', '1.18.2',
+    '1.17', '1.17.1',
+    '1.16', '1.16.1', '1.16.2', '1.16.3', '1.16.4', '1.16.5'
+)
+$fromEnv = @()
+if ($env:MCVER_TARGETS) { $fromEnv = $env:MCVER_TARGETS -split '[,\s]+' }
+$given = @(@($fromEnv) + @($Targets) | ForEach-Object { "$_".Trim() } | Where-Object { $_ -ne '' })
+if ($given.Count -eq 0) { $given = $defaultTargets }
+$Targets = @($given |
+    ForEach-Object { "$_".Trim() } |
+    Where-Object { $_ -ne '' } |
+    Select-Object -Unique)
+if ($Targets.Count -eq 0) { throw '没有指定任何 target（用 MCVER_TARGETS 环境变量或 -Targets）' }
 
 $ErrorActionPreference = 'Stop'
 $root = Split-Path -Parent $PSScriptRoot
@@ -59,33 +81,13 @@ $instanceOverride = @{
     '1.21.9' = 'v1219'
 }
 
-# Fabric API 版本（下载到 testgame\.cache，缺什么补什么）
-$fabricApi = @{
-    '1.21.8'  = @{ v = '0.136.1+1.21.8';  url = '' }
-    '1.21.7'  = @{ v = '0.129.0+1.21.7';  url = '' }
-    '1.21.6'  = @{ v = '0.128.2+1.21.6';  url = '' }
-    '1.21.5'  = @{ v = '0.128.2+1.21.5';  url = '' }
-    '1.21.3'  = @{ v = '0.114.1+1.21.3';  url = '' }
-    '1.21.2'  = @{ v = '0.106.1+1.21.2';  url = '' }
-    '1.21'    = @{ v = '0.102.0+1.21';    url = '' }
-    '1.21.11' = @{ v = '0.141.6+1.21.11'; url = '' }
-    '1.21.10' = @{ v = '0.138.4+1.21.10'; url = '' }
-    '1.21.9' = @{ v = '0.134.1+1.21.9'; url = '' }
-    '1.21.4' = @{ v = '0.119.4+1.21.4'; url = '' }
-    '1.21.1' = @{ v = '0.116.17+1.21.1'; url = '' }
-    '1.20.1' = @{ v = '0.92.2+1.20.1';  url = '' }
-    '1.19.4' = @{ v = '0.87.2+1.19.4';  url = '' }
-    '1.18.2' = @{ v = '0.77.0+1.18.2';  url = 'https://cdn.modrinth.com/data/P7dR8mSH/versions/qk28POfr/fabric-api-0.77.0%2B1.18.2.jar' }
-    '1.17.1' = @{ v = '0.46.1+1.17';   url = 'https://cdn.modrinth.com/data/P7dR8mSH/versions/0.46.1%2B1.17/fabric-api-0.46.1%2B1.17.jar' }
-    '1.16.5' = @{ v = '0.42.0+1.16';   url = 'https://cdn.modrinth.com/data/P7dR8mSH/versions/0.42.0%2B1.16/fabric-api-0.42.0%2B1.16.jar' }
-}
-
-# Modrinth 上没现成 url 的就现查一次（查不到就报错，不静默往下走）
-function Resolve-FabricApiUrl([string]$ver) {
-    $enc = [uri]::EscapeDataString($ver)
-    $json = curl.exe -sS "https://api.modrinth.com/v2/project/fabric-api/version/$enc" | ConvertFrom-Json
-    if (-not $json.files -or $json.files.Count -eq 0) { throw "Modrinth 上没有 fabric-api $ver" }
-    return $json.files[0].url
+# Fabric API：每个补丁版本用哪个由 scripts\fetch-fabric-api-all.mjs 现查好写进 JSON
+# （1.16 和 1.16.5 能用的 fabric-api 就不是同一份，不能靠猜）。
+$apiMap = @{}
+$mapFile = Join-Path $logs 'fabric-api-map.json'
+if (-not (Test-Path $mapFile)) { throw "缺少 $mapFile —— 先跑 node scripts\fetch-fabric-api-all.mjs" }
+(Get-Content $mapFile -Raw | ConvertFrom-Json).PSObject.Properties | ForEach-Object {
+    if ($_.Value) { $apiMap[$_.Name] = $_.Value }
 }
 
 # 首次启动的无障碍引导屏（1.21.9+ 的 AccessibilityOnboardingScreen）会挡在 TitleScreen 前面，
@@ -110,46 +112,116 @@ function Ensure-Mods([string]$id, [string]$v) {
     $mods = Join-Path $testgame "versions\$id\mods"
     New-Item -ItemType Directory -Force -Path $mods | Out-Null
 
-    # 1.21 ~ 1.21.11 共用一个 jar（mc1.21.jar），其余 target 一个版本一个 jar
-    $jarVer = $v
-    if ($v -like '1.21*') { $jarVer = '1.21' }
-    $jar = Join-Path $root "dist\watercraftlauncher-fabric-1.0.0-mc$jarVer.jar"
-    if (-not (Test-Path $jar)) { throw "没有构建产物 $jar" }
+    # 按产物自己声明的版本区间挑（1.19.4 → mc1.19.3.jar，1.19.2 → mc1.19.jar）
+    $jar = Find-JarFor $v
     Copy-Item $jar $mods -Force
     # 清掉同 mod 的旧 jar，免得同一个 mod id 有两份
     Get-ChildItem $mods -Filter 'watercraftlauncher-*.jar' -ErrorAction SilentlyContinue |
         Where-Object { $_.Name -ne (Split-Path -Leaf $jar) } |
         ForEach-Object { Remove-Item $_.FullName -Force; Write-Host "  清掉旧 jar $($_.Name)" }
 
-    if (-not (Get-ChildItem $mods -Filter 'fabric-api-*.jar' -ErrorAction SilentlyContinue)) {
-        $meta = $fabricApi[$v]
-        if (-not $meta) { throw "不知道 MC $v 该用哪个 fabric-api" }
-        $cache = Join-Path $testgame '.cache'
-        New-Item -ItemType Directory -Force -Path $cache | Out-Null
-        $name = "fabric-api-$($meta.v).jar"
-        $target = Join-Path $cache $name
-        if (-not (Test-Path $target)) {
-            $url = $meta.url
-            if (-not $url) { $url = Resolve-FabricApiUrl $meta.v }
-            Write-Host "  下载 fabric-api $($meta.v)…"
-            curl.exe -sSL -o $target $url
-        }
-        if ((Get-Item $target).Length -lt 500000) { throw "fabric-api 下载不对（$(Get-Item $target).Length 字节）：$target" }
-        Copy-Item $target $mods -Force
-    }
+    # fabric-api 也按版本换：换 MC 版本时必须换掉旧的，否则 loader 直接拒载
+    $api = $apiMap[$v]
+    if (-not $api) { throw "fabric-api-map.json 里没有 MC $v" }
+    $cache = Join-Path $testgame '.cache'
+    $src = Join-Path $cache $api.file
+    if (-not (Test-Path $src)) { throw "缺少 fabric-api 缓存文件 $src" }
+    Get-ChildItem $mods -Filter 'fabric-api-*.jar' -ErrorAction SilentlyContinue |
+        Where-Object { $_.Name -ne $api.file } |
+        ForEach-Object { Remove-Item $_.FullName -Force }
+    Copy-Item $src $mods -Force
 }
 
+
+# ---- 按 fabric.mod.json 里的版本区间挑 jar --------------------------------------
+# 每个 dist 里的 jar 都在 fabric.mod.json 写了 "minecraft": ">=A <B"，
+# 这就是它到底能盖哪些版本的**唯一真相**。按文件名猜会出错（1.19.4 会猜到 mc1.19）。
+function ConvertTo-VerTuple([string]$v) {
+    $parts = $v.Trim().Split('.')
+    $nums = @()
+    foreach ($x in $parts) {
+        $n = 0
+        if ([int]::TryParse($x, [ref]$n)) { $nums += $n } else { $nums += 0 }
+    }
+    while ($nums.Count -lt 3) { $nums += 0 }
+    return ,$nums
+}
+
+function Compare-Ver([string]$a, [string]$b) {
+    $x = ConvertTo-VerTuple $a
+    $y = ConvertTo-VerTuple $b
+    for ($i = 0; $i -lt 3; $i++) {
+        if ($x[$i] -ne $y[$i]) { return [math]::Sign($x[$i] - $y[$i]) }
+    }
+    return 0
+}
+
+function Test-InRange([string]$v, [string]$range) {
+    # 只处理 ">=A" / ">=A <B" 两种（build.gradle 只会生成这两种）
+    if ($range -match '>=\s*([0-9.]+)') {
+        if ((Compare-Ver $v $Matches[1]) -lt 0) { return $false }
+    }
+    if ($range -match '<\s*([0-9.]+)') {
+        if ((Compare-Ver $v $Matches[1]) -ge 0) { return $false }
+    }
+    return $true
+}
+
+$script:jarRangeCache = $null
+function Get-JarRanges {
+    if ($script:jarRangeCache) { return $script:jarRangeCache }
+    Add-Type -AssemblyName System.IO.Compression.FileSystem | Out-Null
+    $map = @()
+    foreach ($j in (Get-ChildItem (Join-Path $root 'dist') -Filter 'watercraftlauncher-*.jar' -ErrorAction SilentlyContinue)) {
+        try {
+            $z = [System.IO.Compression.ZipFile]::OpenRead($j.FullName)
+            $e = $z.Entries | Where-Object { $_.FullName -eq 'fabric.mod.json' } | Select-Object -First 1
+            if (-not $e) { $z.Dispose(); continue }
+            $r = New-Object System.IO.StreamReader($e.Open())
+            $txt = $r.ReadToEnd()
+            $r.Close()
+            $z.Dispose()
+            $dep = ($txt | ConvertFrom-Json).depends.minecraft
+            if ($dep) { $map += [pscustomobject]@{ Path = $j.FullName; Range = $dep } }
+        } catch {
+            Write-Host "  [warn] 读不了 $($j.Name)：$_" -ForegroundColor DarkYellow
+        }
+    }
+    $script:jarRangeCache = $map
+    return $map
+}
+
+function Find-JarFor([string]$v) {
+    foreach ($m in (Get-JarRanges)) {
+        if (Test-InRange $v $m.Range) { return $m.Path }
+    }
+    throw "没有哪个 jar 的版本区间包含 MC $v（现有：$((Get-JarRanges | ForEach-Object { (Split-Path $_.Path -Leaf) + '=' + $_.Range }) -join '; '))"
+}
+# -----------------------------------------------------------------------------
+
 $results = @()
+$skipped = @()
 foreach ($v in $Targets) {
-    $id = "V$v-FABRIC"
+    $id = $null
     if ($instanceOverride.ContainsKey($v)) { $id = $instanceOverride[$v] }
+    if (-not $id) {
+        foreach ($cand in @("V$v-FABRIC", "fabric-loader-0.20.1-$v")) {
+            if (Test-Path (Join-Path $testgame "versions\$cand")) { $id = $cand; break }
+        }
+    }
+    if (-not $id) { $id = "V$v-FABRIC" }
     if (-not (Test-Path (Join-Path $testgame "versions\$id"))) {
         Write-Host "[$v] 跳过：没有 $id" -ForegroundColor Yellow
+        $skipped += $v
         continue
     }
 
     Get-Process java -ErrorAction SilentlyContinue | Stop-Process -Force
     Start-Sleep -Seconds 2
+
+    # 实例必须开着版本隔离，否则日志/options.txt 都不在这个目录里
+    $marker = Join-Path $testgame "versions\$id\.mcver-isolated"
+    if (-not (Test-Path $marker)) { New-Item -ItemType File -Force -Path $marker | Out-Null }
 
     Ensure-Mods $id $v
     Disable-Onboarding $id
@@ -246,6 +318,11 @@ $results | Format-Table -AutoSize
 $failed = @($results | Where-Object { -not $_.Ok })
 if ($results.Count -eq 0) {
     Write-Host '一个 target 都没跑（全部跳过）——这不算通过。' -ForegroundColor Red
+    exit 1
+}
+if ($skipped.Count -gt 0 -and -not $AllowSkip) {
+    Write-Host "有 $($skipped.Count) 个 target 被跳过（实例不存在）：$($skipped -join ', ')" -ForegroundColor Red
+    Write-Host '跳过 = 没有证据，不算通过。确实只想跑一部分就加 -AllowSkip。' -ForegroundColor Red
     exit 1
 }
 if ($failed.Count -gt 0) {

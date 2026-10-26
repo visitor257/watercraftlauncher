@@ -8,17 +8,15 @@ import net.minecraft.item.ItemStack;
 import net.minecraft.text.Text;
 
 /**
- * 1.16.5 版渲染上下文适配层（{@code src/main} 那份是给 1.20+ 的 DrawContext 用的）。
+ * 1.19 ~ 1.19.2 渲染上下文适配层（1.19.3/1.19.4 那份见 compat/1.19.3）。
  *
- * <p>1.16.5 比 1.19.4 又早一步，三处细节都不一样：
+ * <p>跟 1.19.3 的差别只有两处（都是"1.19.4 加了个参数"）：
  * <ul>
- *   <li>{@code fill} → {@link DrawableHelper#fill} 静态方法，跟 1.19.4 一样；</li>
- *   <li>{@code drawText} → {@link TextRenderer#draw} 的第 8 个参数在 1.16.5 还是
- *       {@code boolean seeThrough}（1.19.4 换成了 {@code TextLayerType} 枚举），
- *       且矩阵要取 {@code MatrixStack.Entry#getModel()}（1.18 才改名 getPositionMatrix）；</li>
- *   <li>{@code drawItem} → {@code ItemRenderer#renderInGui(ItemStack, int, int)}
- *       <b>不收 MatrixStack</b>（1.19.4 才有收矩阵的重载），它内部直接用 RenderSystem
- *       的模型矩阵。屏幕渲染时那个矩阵就是单位矩阵，所以坐标不用额外换算。</li>
+ *   <li>{@code TextRenderer#draw} 第 8 参是 {@code boolean seeThrough}（1.19.4 换成
+ *       {@code TextLayerType} 枚举）；</li>
+ *   <li>{@code ItemRenderer#renderInGui(ItemStack, int, int)} <b>不收 MatrixStack</b>
+ *       （1.19.4 才有收矩阵的重载），内部直接用 RenderSystem 的模型矩阵 ——
+ *       屏幕渲染时那个矩阵就是单位矩阵，坐标不用换算。</li>
  * </ul>
  */
 public final class Ctx {
@@ -39,8 +37,7 @@ public final class Ctx {
 
     public void drawText(TextRenderer tr, Text t, int x, int y, int color, boolean shadow) {
         MinecraftClient mc = MinecraftClient.getInstance();
-        // 1.16.5 的 MatrixStack.Entry 还叫 getModel()（1.18 才改名 getPositionMatrix）。
-        tr.draw(t, x, y, color, shadow, matrices.peek().getModel(),
+        tr.draw(t, x, y, color, shadow, matrices.peek().getPositionMatrix(),
                 mc.getBufferBuilders().getEntityVertexConsumers(), false, 0, 0xF000F0);
     }
 

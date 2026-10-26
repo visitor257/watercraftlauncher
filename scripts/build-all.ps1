@@ -10,7 +10,13 @@
 
 param(
     [string]$Gradle = '',
-    [switch]$Offline
+    [switch]$Offline,
+    # 只构建指定的 target（例：-Only 1.19,1.19.3）。
+    # 注意：-File 模式下 "1.19,1.19.3" 会整个当一个字符串传进来，下面自己拆。
+    # 以前根本没有这个参数，传了也会被忽略 —— 结果「只跑两个」其实是全跑。
+    [string]$Only = '',
+    # 每次用完就杀 daemon：连续跑七目标时 daemon 会越积越多，最后互相挤爆内存
+    [switch]$NoDaemon
 )
 
 $ErrorActionPreference = 'Stop'
@@ -61,17 +67,27 @@ if ($null -eq $gradle) {
 Write-Host "Gradle: $gradle" -ForegroundColor Cyan
 
 $targets = @(
-    # 一个 jar 盖 1.21 ~ 1.21.11。编译基准取系列里**最新**的 1.21.11（只有它两端都有），
-    # 1.21/1.21.1 没有 Item.Settings#registryKey，靠 NoSuchMethodError 退回来。
-    @{ name = '1.21';    mc = '1.21.11'; yarn = '1.21.11+build.6'; api = '0.141.6+1.21.11'; compat = '';    java = '21'; wide = '1.21' },
-    @{ name = '1.20.1'; mc = '1.20.1'; yarn = '1.20.1+build.10'; api = '0.92.2+1.20.1';  compat = '1.20.1'; java = '17' },
-    @{ name = '1.19.4'; mc = '1.19.4'; yarn = '1.19.4+build.2';  api = '0.87.2+1.19.4';  compat = '1.19.4'; java = '17' },
-    @{ name = '1.18.2'; mc = '1.18.2'; yarn = '1.18.2+build.4';  api = '0.77.0+1.18.2';  compat = '1.18.2'; java = '17' },
-    @{ name = '1.17.1'; mc = '1.17.1'; yarn = '1.17.1+build.65'; api = '0.46.1+1.17';    compat = '1.17.1'; java = '16' },
-    @{ name = '1.16.5'; mc = '1.16.5'; yarn = '1.16.5+build.10'; api = '0.42.0+1.16';  compat = '1.16.5'; java = '8' }
+    # 一个 jar 盖一整个 1.xx 系列。编译基准 = 该系列里「不抬高 Java 要求」的最新补丁版：
+    #   1.20.5/1.20.6 要 Java 21，不能当 1.20 的基准（会把 1.20.1 的用户挡在门外），
+    #   它们靠 NoSuchMethodError / 静态分支退回；1.21 反过来必须站在最新的 1.21.11 上
+    #   （Item.Settings#registryKey 是 1.21.2 才有的）。
+    @{ name = '1.21'; mc = '1.21.11'; yarn = '1.21.11+build.6'; api = '0.141.6+1.21.11'; compat = '';    java = '21'; wide = '1.21' },
+    @{ name = '1.20'; mc = '1.20.4';  yarn = '1.20.4+build.3';  api = '0.97.1+1.20.4';   compat = '1.20';  java = '17'; wide = '1.20' },
+    # 1.19 系列内部有真断层（Registries 字段类型 + 渲染签名 + 创造栅 API），拆两个 jar
+    @{ name = '1.19'; mc = '1.19.2';  yarn = '1.19.2+build.10'; api = '0.77.0+1.19.2';   compat = '1.19';  java = '17'; wide = '1.19'; wideMax = '1.19.3' },
+    @{ name = '1.19.3'; mc = '1.19.4'; yarn = '1.19.4+build.2'; api = '0.87.2+1.19.4';  compat = '1.19.3'; java = '17'; wide = '1.19.3' },
+    @{ name = '1.18'; mc = '1.18.2';  yarn = '1.18.2+build.4';  api = '0.77.0+1.18.2';   compat = '1.18';  java = '17'; wide = '1.18' },
+    @{ name = '1.17'; mc = '1.17.1';  yarn = '1.17.1+build.65'; api = '0.46.1+1.17';     compat = '1.17';  java = '16'; wide = '1.17' },
+    @{ name = '1.16'; mc = '1.16.5';  yarn = '1.16.5+build.10'; api = '0.42.0+1.16';     compat = '1.16';  java = '8';  wide = '1.16' }
 )
 
 $failed = @()
+if ($Only) {
+    $want = @($Only -split '[,\s]+' | Where-Object { $_ -ne '' })
+    $targets = @($targets | Where-Object { $want -contains $_.name })
+    if ($targets.Count -eq 0) { throw "-Only 里没有一个有效 target：$Only" }
+    Write-Host "只构建：$($targets.name -join ', ')" -ForegroundColor Cyan
+}
 foreach ($t in $targets) {
     Write-Host "=== 构建 MC $($t.name) ===" -ForegroundColor Cyan
     $gargs = @(
@@ -82,9 +98,11 @@ foreach ($t in $targets) {
         "-Pjava_release=$($t.java)"
     )
     if ($Offline) { $gargs += '--offline' }
+    if ($NoDaemon) { $gargs += '--no-daemon' }
     if ($t.compat -ne '') { $gargs += "-Pcompat=$($t.compat)" }
     # 一个 jar 盖一整个大版本：让 fabric.mod.json 写 >=1.21 <1.22（由 build.gradle 算，不传 > 符号）
     if ($t.wide -ne '' -and $t.wide) { $gargs += "-Pwide_mc=$($t.wide)" }
+    if ($t.wideMax) { $gargs += "-Pwide_max=$($t.wideMax)" }
 
     Push-Location $mod
     try {

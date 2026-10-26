@@ -1,17 +1,19 @@
 package dev.mcver.ui;
 
 import net.minecraft.client.MinecraftClient;
-import net.minecraft.client.gui.DrawContext;
 import net.minecraft.client.gui.screen.Screen;
+import net.minecraft.client.util.math.MatrixStack;
 import net.minecraft.text.Text;
 
 /**
- * 1.20.1 版差异层（{@code src/main} 那份按 1.21.4 的签名写）。
+ * 1.19.4 版差异层（{@code src/main} 那份按 1.21.4 的签名写）。
  *
- * <p>1.20.1 已经有 {@link DrawContext}，但两个钩子跟 1.21.4 不同：
+ * <p>1.19.4 的三个钩子都还是 MatrixStack 时代：
  * <ul>
- *   <li>背景渲染是 {@code renderBackground(DrawContext)}（1.21.2 才加 mouseX/mouseY/delta）；</li>
- *   <li>滚轮回调只有 3 个参数（横向滚动 1.20.2 才有）。</li>
+ *   <li>{@code render(MatrixStack, int, int, float)}；</li>
+ *   <li>{@code renderBackground(MatrixStack)} 只有 matrices 一个参数
+ *       （1.20 才改成 DrawContext 版，1.21.2 又加了 mouseX/mouseY/delta）；</li>
+ *   <li>{@code mouseScrolled(double, double, double)} 只有 3 个参数（横向滚动 1.20.2 才加）。</li>
  * </ul>
  */
 public abstract class ChromeScreen extends Screen {
@@ -39,24 +41,22 @@ public abstract class ChromeScreen extends Screen {
     /** 页内容。父类已经画完背景和控件，这里只补自己的东西。 */
     protected abstract void renderContent(Ctx ctx, int mouseX, int mouseY, float delta);
 
-    /** 滚轮：先给当前页；没人接就交回父类。1.20.1 没有横向滚动，horizontal 恒为 0。 */
+    /** 滚轮：先给当前页；没人接就交回父类。1.19.4 没有横向滚动，horizontal 恒为 0。 */
     protected abstract boolean onScroll(double mouseX, double mouseY, double horizontal, double vertical);
 
     @Override
-    public void render(DrawContext ctx, int mouseX, int mouseY, float delta) {
-        // 1.20.1 的 Screen.render 只遍历 drawables，**不会**调 renderBackground（1.21.1 才改成自动调）。
-        // 所以这里必须手动按顺序来：原版底 → 面板 → 控件 → 页内容。
-        // 2026-10-26 用户报「面板变透明」就是这个原因：drawChrome 写在 renderBackground 里，
-        // 而这个版本根本没人调 renderBackground。
-        renderBackground(ctx);
-        super.render(ctx, mouseX, mouseY, delta);
-        renderContent(Ctx.of(ctx), mouseX, mouseY, delta);
+    public void render(MatrixStack matrices, int mouseX, int mouseY, float delta) {
+        // 1.19.4 的 Screen.render 只遍历 drawables，**不会**调 renderBackground
+        // （自动调是 1.21.1 才有的行为）。不手动调就会整个面板不画、界面看起来是透明的。
+        renderBackground(matrices);
+        super.render(matrices, mouseX, mouseY, delta);
+        renderContent(Ctx.of(matrices), mouseX, mouseY, delta);
     }
 
     @Override
-    public void renderBackground(DrawContext ctx) {
-        super.renderBackground(ctx);
-        drawChrome(Ctx.of(ctx));
+    public void renderBackground(MatrixStack matrices) {
+        super.renderBackground(matrices);
+        drawChrome(Ctx.of(matrices));
     }
 
     @Override

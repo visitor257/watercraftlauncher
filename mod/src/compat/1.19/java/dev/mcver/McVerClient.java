@@ -4,7 +4,6 @@ import dev.mcver.core.Config;
 import dev.mcver.ui.MainScreen;
 import dev.mcver.ui.UiState;
 import dev.mcver.ui.DownloadPage;
-import dev.mcver.ui.Txt;
 import net.fabricmc.api.ClientModInitializer;
 import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents;
 import net.fabricmc.fabric.api.client.itemgroup.FabricItemGroupBuilder;
@@ -21,16 +20,9 @@ import net.minecraft.util.TypedActionResult;
 import org.lwjgl.glfw.GLFW;
 
 /**
- * 1.16.5 兼容层：客户端入口。
+ * 1.19 ~ 1.19.2 兼容层：客户端入口。
  *
- * <p>跟 1.19.4 那份比，多两处差异：
- * <ul>
- *   <li>{@code Text.literal} 没有，聊天栏文本走 {@code new LiteralText}（由 {@link dev.mcver.ui.Txt} 代劳）；</li>
- *   <li>创造栏：Fabric API 0.77 / 1.16.5 没有 {@code ItemGroupEvents}，
- *       只能用 {@code FabricItemGroupBuilder} 自建一个「Water Craft Launcher」栏。</li>
- *   <li>{@code MinecraftClient#setScreen} 在 1.16.5 叫 {@code openScreen}；</li>
- *   <li>{@code ItemStack#isOf(Item)} 是 1.17 才有的，1.16.5 用 {@code getItem() == item}。</li>
- * </ul>
+ * <p>与 1.19.3/1.19.4 那份的唯一差别：创造栏用 v0 的 FabricItemGroupBuilder（见下）。
  */
 public class McVerClient implements ClientModInitializer {
 
@@ -40,7 +32,8 @@ public class McVerClient implements ClientModInitializer {
     public void onInitializeClient() {
         Config.load();
 
-        // ---- 创造栏：自建一个（1.16.5 塞不进原版 TOOLS 栏，没有 ItemGroupEvents）
+        // ---- 创造栏：1.19 ~ 1.19.2 的 fabric-api 没有 ItemGroupEvents（v1 是 1.19.3 才有），
+        //      只能用 v0 的 FabricItemGroupBuilder 自建一个「Water Craft Launcher」栏。
         FabricItemGroupBuilder.create(new Identifier(McVerMod.MOD_ID, "items"))
                 .icon(() -> new ItemStack(McVerMod.DOWNLOAD_TOOL))
                 .appendItems(stacks -> stacks.add(new ItemStack(McVerMod.DOWNLOAD_TOOL)))
@@ -49,7 +42,7 @@ public class McVerClient implements ClientModInitializer {
         // ---- 手持「版本下载器」右键
         UseItemCallback.EVENT.register((player, world, hand) -> {
             ItemStack stack = player.getStackInHand(hand);
-            if (stack.getItem() == McVerMod.DOWNLOAD_TOOL) {
+            if (stack.isOf(McVerMod.DOWNLOAD_TOOL)) {
                 if (world.isClient()) {
                     McVerMod.LOGGER.info("mcver: 右键打开启动器");
                     MinecraftClient.getInstance().execute(McVerClient::openMain);
@@ -104,7 +97,7 @@ public class McVerClient implements ClientModInitializer {
 
         String which = System.getenv("MCVER_SCREEN");
         MainScreen screen = new MainScreen(mc.currentScreen);
-        mc.openScreen(screen);
+        mc.setScreen(screen);
         if ("wizard".equalsIgnoreCase(which) || "download".equalsIgnoreCase(which)) {
             screen.switchTo("下载");
         }
@@ -118,7 +111,7 @@ public class McVerClient implements ClientModInitializer {
     static void chat(String s) {
         MinecraftClient mc = MinecraftClient.getInstance();
         if (mc.inGameHud != null) {
-            mc.inGameHud.getChatHud().addMessage(Txt.of(s));
+            mc.inGameHud.getChatHud().addMessage(Text.literal(s));
         }
     }
 }

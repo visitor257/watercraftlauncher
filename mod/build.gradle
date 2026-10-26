@@ -80,7 +80,11 @@ def mcVerParts = project.minecraft_version.toString().trim().tokenize('.')
 def mcDep
 if (!wideMc.isEmpty()) {
     def wp = wideMc.tokenize('.')
-    def upper = "${wp[0]}.${(wp[1] as int) + 1}"
+    // 默认上界是「次版本 + 1」；但一个 1.xx 系列内部也可能有真断层
+    // （1.19 ~ 1.19.2 与 1.19.3 ~ 1.19.4 就不是一个 jar 能盖住的），
+    // 这种时候用 -Pwide_max=1.19.3 显式指定上界（不含）。
+    def wideMax = (project.findProperty("wide_max") ?: "").toString().trim()
+    def upper = wideMax.isEmpty() ? "${wp[0]}.${(wp[1] as int) + 1}" : wideMax
     mcDep = ">=${wideMc} <${upper}"
 } else if (mcVerParts.size() >= 3) {
     def upper = "${mcVerParts[0]}.${mcVerParts[1]}.${(mcVerParts[2] as int) + 1}"
@@ -90,16 +94,15 @@ if (!wideMc.isEmpty()) {
 }
 def javaDep = javaRelease <= 8 ? ">=1.8" : ">=${javaRelease}"
 
-// Fabric API 的 mod id 在 1.19 之前叫 "fabric"（bundle 里的 fabric.mod.json id 就是 fabric），
-// 1.19+ 才改成 "fabric-api"。依赖声明必须跟那个年代的 id 对得上，否则 loader 报
-// HARD_DEP_NO_CANDIDATE（实测 1.17.1 + fabric-api 0.46.1 就是）。
-// 不用命令行传，避免又碰上 Windows 吃字符的老坑；按 minecraft_version 推。
-def fabricApiId = 'fabric-api'
-if (mcVerParts.size() >= 2) {
-    def minor = mcVerParts[1] as int
-    def major = mcVerParts[0] as int
-    if (major == 1 && minor < 19) fabricApiId = 'fabric'
-}
+// Fabric API 的依赖声明一律用 **fabric**（不是 fabric-api）。原因：
+//   - 1.16～1.18.2（0.42 / 0.46 / 0.77 早期）那个 bundle 的 mod id 就叫 fabric；
+//   - 1.19.2 之后 bundle 的 id 改成了 fabric-api，但都声明了 `provides: fabric`；
+//   - 而 **1.19 / 1.19.1（0.58.x）既叫 fabric、又没有 provides**。
+// 实测四个弹版本：0.58.0/0.58.5 id=fabric；0.77.0/0.76.1/0.87.2/0.83.0/0.92.12/
+// 0.100.8/0.106.1/0.141.6 都是 id=fabric-api + provides=fabric。
+// → 只有声明 fabric 能在**整个系列**（含 1.19 全系）都对得上。
+// 之前按 minecraft_version 推“<1.19 用 fabric”是错的： 1.19 自己还是 fabric。
+def fabricApiId = 'fabric'
 
 processResources {
     inputs.property "version", project.version
