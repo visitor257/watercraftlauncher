@@ -94,6 +94,7 @@ $matrix = @(
     @{ mc='1.7.10'; kind='FORGE'; shader='NONE'; phase=3; note='远古 / Java 8' },
     @{ mc='1.10.2'; kind='FORGE'; shader='NONE'; phase=3; note='远古 / Java 8' },
     @{ mc='1.12.2'; kind='FORGE'; shader='NONE'; phase=3; note='已过 / Java 8' },
+    @{ mc='1.12.2'; kind='FABRIC'; shader='NONE'; phase=3; note='Legacy Fabric' },
     @{ mc='1.14.4'; kind='FORGE'; shader='NONE'; phase=2; note='' },
     @{ mc='1.16.5'; kind='FORGE'; shader='NONE'; phase=2; note='' },
     @{ mc='1.17.1'; kind='FORGE'; shader='NONE'; phase=2; note='' },

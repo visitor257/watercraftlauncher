@@ -405,3 +405,19 @@ spike 里写了个覆盖这些点的类，在 **loom 1.11.8 + legacy-looming 1.1
 **硬约束**：loom 1.16 要求 Gradle 9.x（本仓库 8.14.2）；而 Legacy Fabric API 聚合包 `1.13.5+1.12.2`
 是用 loom 1.15.3 打的，装进 loom 1.11.8 会报 `Mod was built with a newer version of Loom`。
 真要做，得先决定升不升 Gradle 9。
+
+### 矩阵重跑结果（Java 8 重构 + Legacy Fabric 之后）
+49 个组合全部 `install=OK launch=OK`（新增 `1.12.2-FABRIC-NONE` = Legacy Fabric）：
+
+| 段 | 组合 | 结果 |
+|---|---|---|
+| Fabric 1.14～26.1 | 16 | 全 OK（1.20.5 那次卡死修好后 61s 通过）|
+| Quilt | 4 | 全 OK |
+| Forge 1.7.10～26.1 | 15 | 全 OK |
+| NeoForge 1.20.1～26.1 | 7 | 全 OK（1.20.1 最久 435s，首次跑安装器 + 预取库）|
+| OptiFine | 4 | 全 OK |
+| Iris | 2 | 全 OK |
+| **Legacy Fabric 1.12.2** | 1 | **OK（新增）** |
+
+`verification/results.csv` 里多轮追加的 156 行已按「每个组合取最后一次」收敛成 49 行，
+原始记录留在 `verification/results-history.csv`。
