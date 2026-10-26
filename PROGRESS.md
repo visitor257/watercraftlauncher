@@ -421,3 +421,43 @@ spike 里写了个覆盖这些点的类，在 **loom 1.11.8 + legacy-looming 1.1
 
 `verification/results.csv` 里多轮追加的 156 行已按「每个组合取最后一次」收敛成 49 行，
 原始记录留在 `verification/results-history.csv`。
+
+## 还有哪些 MC 版本要弄（mod 本体，2026-10-26 盘点）
+
+### 硬事实
+- Mojang release 共 **103** 个，去掉 26.x 五个（1.26 说 26.1/26.1.1/26.1.2/26.2/26.3）→ **98 个**。
+- `dist/` 七个 jar 覆盖 **7 个精确版本**（1.16.5 / 1.17.1 / 1.18.2 / 1.19.4 / 1.20.1 / 1.21.1 / 1.21.4）。
+- 每个 jar 的 `fabric.mod.json` 都写着**精确区间**（如 `>=1.21.4 <1.21.5`）→ 一个 jar 只能跑一个版本。
+  **缺 91 个版本。**
+
+### 按 API 时代分组（要新建 target 的只有「代」，不是「版本」）
+| 时代 | 版本数 | 现状 |
+|---|---|---|
+| 1.0 – 1.12.2 | 52 | 无 target（1.12.2 spike 已通过，等 Gradle 9 决策）|
+| 1.13 – 1.13.2 | 3 | 无（扁平化 UI 第一代，无 MatrixStack）|
+| 1.14 – 1.14.4 | 5 | 无（无 MatrixStack）|
+| 1.15 – 1.16.4 | 8 | 无（1.16.5 的 target 大概率能盖 1.16–1.16.4，1.15 要另验）|
+| 1.17 | 1 | 1.17.1 target 可能直接盖（未验）|
+| 1.18 – 1.18.1 | 2 | 1.18.2 target 可能直接盖（未验）|
+| 1.19 – 1.19.3 | 4 | 无（1.19.3 改了 renderBackground 签名）|
+| 1.20 | 1 | 1.20.1 target 可能直接盖（未验）|
+| 1.20.2 – 1.20.4 | 3 | 无 |
+| 1.20.5 – 1.20.6 | 2 | 无（组件系统断层，最贵）|
+| 1.21 | 1 | 见下「1.21 实测」|
+| 1.21.2 – 1.21.3 | 2 | 1.21.4 target 可能直接盖（未验）|
+| 1.21.5 – 1.21.8 | 4 | 无 |
+| 1.21.9 – 1.21.11 | 3 | 无（最新版，价值高）|
+
+### 「放开区间」第一次实测（1.21.1 jar → 1.21）
+做法：解包 dist 的 1.21.1 jar，把 `minecraft` 改成 `>=1.21 <1.21.2`，装 1.21+Fabric，塞进 mods 启动。
+结果：
+- ✅ mod 加载、物品注册（`mcver:download_tool`）、客户端初始化完成、到 `Setting user`，**没有 NoSuchMethodError / NoClassDefFoundError**。
+- ❌ 自检钩子（`MCVER_OPEN_GUI` → 等 `TitleScreen` 再开界面）**没触发**，`screen=MAIN` 没出现；`PrintWindow` 抓到黑帧，界面层无法判定。
+- 线程栈显示 Render thread 正常在 `RenderSystem.limitDisplayFPS`（不是死锁）。
+→ 结论：**核心 API 跨 1.21/1.21.1 兼容，但界面层还没证据**；「一代一 jar」可行但每个版本都得做真窗口像素验证，不是免费的。
+
+### 踩到的两个工具坑（这次才发现的）
+1. **`ZipFile.CreateFromDirectory` 写出的 zip 条目用反斜杠**（`dev\mcver\McVerMod.class`），
+   Fabric loader 找不到类 → `ClassNotFoundException`。必须手写 `ZipArchive`，把 `\` 换成 `/`。
+2. **`Get-Content -Raw` 默认按 ANSI 读**，改 `fabric.mod.json`（含中文 description）会把 UTF-8 读成乱码再写回 →
+   `MalformedJsonException: Unterminated object`。要用 `-Encoding UTF8` 或干脆用 node 改。
