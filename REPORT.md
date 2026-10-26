@@ -1389,3 +1389,46 @@ slf4j 没了（这年代用 log4j2）、`addDrawableChild` → `addChild`、`cle
 ### 遗留
 - 48 组合的安装矩阵是这轮重构之前跑的。安装链路的**主路径**已用 smoke 验过，
   但没重跑全矩阵 —— 如果之后发现某个加载器装的路径有 HTTP 相关怪问题，先怀疑这次重构。
+
+## 三十六、2026-10-26 16:10：Fabric 覆盖到 1.3（Legacy Fabric）+ Net 看门狗
+
+### 起因
+Java 8 兼容做完后，下一步本来是 1.12.2 的 UI。查了一下发现更值得先做的一件事：
+**Fabric 官方从 1.14 才有**（`meta.fabricmc.net/.../loader/1.12.2` 直接 400），
+所以下载页里 1.13 及以前 + Fabric 一直是「不支持」。但 **Legacy Fabric** 支持 1.3～1.13.2。
+
+### 改动
+- `core/FabricMeta`（新）：1.13 及以前走 legacy meta/maven，其余走官方；Legacy 没有 BMCLAPI 镜像。
+- `LoaderVersions.fabric` / `LoaderInstaller.installFabric`：base 全走 `FabricMeta`；
+  Legacy 时跳过官方 fabric-installer（它对 legacy 只会 400）。
+- `LoaderSupport`：Fabric 规则 = `>=1.14 || >=1.3`。
+- `writeProfile`：**支持 `natives` 映射**（真 bug，见下）。
+- `Json.objOrNull`：顶层 Json 补了这个方法（原来只有 `Installer.Json` 内部类有）。
+
+### 两个真 bug（都是自己踩出来的）
+1. **`lwjgl-platform` 没有 plain jar**：Legacy profile 里它是 `natives` 库，只有
+   `-natives-windows.jar`。`writeProfile` 原来直接拼 `<artifact>-<version>.jar` → 404 →
+   `下载库失败` → 回退到官方 installer → 400 → 整个安装失败。
+   修法：带 `natives` 的库只下 classifier 包、解压到 `versions/<id>/natives`，不进 classpath。
+2. **`Net.download` 会无限卡死**：重跑矩阵时 1.20.5 卡了**一小时**，`.part` 停在 9.5 MB。
+   `setConnectTimeout` 管不住 DNS，`setReadTimeout` 管不住半死连接。
+   修法：传输放工作线程 + `join(max(90s, connect + 2*read))` 硬超时，到点 `disconnect()` 抛错让上层重试。
+
+### 顺手修的基础设施
+- `scripts/build-probe.ps1` 当时是坏的（1.16.5 那轮加的 `core/Compat.java` / `core/Log.java`
+  引了 net.minecraft / slf4j，探针环境没有）→ 显式排除，两家都不被 core 引用。
+- 新增 `scripts/build-probe-alt.ps1`（输出 `tools\probe\out-alt`），矩阵跑着也能编探针验新功能。
+
+### 验证
+- `FABRIC x 1.12.2 => OK`（以前 NO）
+- 安装：`ProbeInstall testgame122 1.12.2 FABRIC` → loader 0.20.1 / 11 个库 / natives 1 / `complete=true`
+- 启动：`ProbeLaunch` → `KnotClient` / `jre-1.8` / `OK 到达 Setting user`
+- 全量矩阵重跑中（`-Force`，之前那轮因为 1.20.5 卡死作废）
+
+### 教训
+1. **别假设「profile 里的库都有 plain jar」**：natives 库只有 classifier 包。看 `natives` 字段。
+2. **HTTP 超时不是万能的**：DNS 解析不受 connectTimeout 约束，得靠「整体硬超时 + 放弃线程」兜底。
+3. **工具脚本也会悄悄过期**：`build-probe.ps1` 半年前就编不过了，因为没人重编。验证流程里该加「探针能不能重编」这一条。
+4. **1.12.2 的 mod 本体不是重写**：26 个 MC 类里 16 个同名（legacy yarn 用的是现代命名风格），
+   缺的主要是渲染（无 MatrixStack）、注册表、控件基类。spike 已编译 + remapJar 通过。
+   真障碍是工具链：loom 1.16 要 Gradle 9，而 Legacy API 聚合包是 loom 1.15.3 打的。

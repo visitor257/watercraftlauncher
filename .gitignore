@@ -50,3 +50,8 @@ tools/probe/out/
 verification/.run.lock
 logs/verify/
 
+# 一次性 spike 的构建缓存，不进仓库
+spike/lf122/.gradle/
+spike/lf122/build/
+spike/lf122/gradle/
+spike/lf-yarn/*.jar

@@ -1,13 +1,13 @@
 ﻿# 验证结果（自动生成）
 
-生成时间：2026-10-26 10:44  ·  测试目录：D:\Development\watercraftlauncher\testgame
+生成时间：2026-10-26 15:01  ·  测试目录：D:\Development\watercraftlauncher\testgame
 
 | MC | 加载器 | 光影 | 安装 | 启动 | 版本 id | 耗时 | 备注 |
 |---|---|---|---|---|---|---|---|
 | 1.21.4 | FABRIC | NONE | OK | OK | fabric-loader-0.20.1-1.21.4 | 40s |  |
 | 1.21.4 | QUILT | NONE | OK | OK | V1.21.4-QUILT | 91s |  |
-| 1.20.1 | FABRIC | NONE | OK | OK | V1.20.1-FABRIC | 213s |  |
-| 1.20.4 | FABRIC | NONE | OK | OK | V1.20.4-FABRIC | 75s |  |
+| 1.20.1 | FABRIC | NONE | OK | OK | fabric-loader-0.20.1-1.20.1 | 27s |  |
+| 1.20.4 | FABRIC | NONE | OK | OK | fabric-loader-0.20.1-1.20.4 | 29s |  |
 | 1.20.5 | FABRIC | NONE | OK | OK | V1.20.5-FABRIC | 70s |  |
 | 1.20.6 | FABRIC | NONE | OK | OK | V1.20.6-FABRIC | 66s |  |
 | 1.21.1 | FABRIC | NONE | OK | OK | V1.21.1-FABRIC | 92s |  |
@@ -27,13 +27,13 @@
 | 1.20.4 | NEOFORGE | NONE | OK | OK | V1.20.4-NEOFORGE | 131s |  |
 | 1.20.6 | NEOFORGE | NONE | OK | OK | V1.20.6-NEOFORGE | 81s |  |
 | 1.21.1 | NEOFORGE | NONE | OK | OK | V1.21.1-NEOFORGE | 381s |  |
-| 1.14 | FABRIC | NONE | OK | OK | V1.14-FABRIC | 155s |  |
-| 1.14.4 | FABRIC | NONE | OK | OK | V1.14.4-FABRIC | 40s |  |
-| 1.15.2 | FABRIC | NONE | OK | OK | V1.15.2-FABRIC | 410s |  |
-| 1.16.5 | FABRIC | NONE | OK | OK | fabric-loader-0.20.1-1.16.5 | 72s |  |
-| 1.17 | FABRIC | NONE | OK | OK | V1.17-FABRIC | 129s |  |
-| 1.18.2 | FABRIC | NONE | OK | OK | V1.18.2-FABRIC | 85s |  |
-| 1.19.4 | FABRIC | NONE | OK | OK | V1.19.4-FABRIC | 269s |  |
+| 1.14 | FABRIC | NONE | OK | OK | fabric-loader-0.20.1-1.14 | 22s |  |
+| 1.14.4 | FABRIC | NONE | OK | OK | fabric-loader-0.20.1-1.14.4 | 16s |  |
+| 1.15.2 | FABRIC | NONE | OK | OK | fabric-loader-0.20.1-1.15.2 | 115s |  |
+| 1.16.5 | FABRIC | NONE | OK | OK | fabric-loader-0.20.1-1.16.5 | 26s |  |
+| 1.17 | FABRIC | NONE | OK | OK | fabric-loader-0.20.1-1.17 | 213s |  |
+| 1.18.2 | FABRIC | NONE | OK | OK | fabric-loader-0.20.1-1.18.2 | 44s |  |
+| 1.19.4 | FABRIC | NONE | OK | OK | fabric-loader-0.20.1-1.19.4 | 25s |  |
 | 1.14.4 | QUILT | NONE | OK | OK | V1.14.4-QUILT | 77s |  |
 | 1.18.2 | QUILT | NONE | OK | OK | V1.18.2-QUILT | 69s |  |
 | 1.14.4 | FORGE | NONE | OK | OK | V1.14.4-FORGE | 44s |  |

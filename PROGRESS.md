@@ -357,3 +357,51 @@ HARD_DEP_INCOMPATIBLE_PRESELECTED ... {depends java @ [>=17]} 挡掉；钉到 Ja
 ### 结论
 `fabric.mod.json` 的 `depends java` 对 1.16.5 现在是 `>=1.8`；玩家拿默认的 Java 8 起游戏就能用。
 1.12.2 的最大一块前置也顺势清掉了。
+
+## 15. 2026-10-26：Fabric 往下推到 1.3（Legacy Fabric），顺手修掉一个「无限卡死」
+
+Java 8 兼容做完之后，1.12.2 剩的是「老 UI API」。但在动 UI 之前先查了一件事：
+**Fabric 官方根本不支持 1.12.2**（meta.fabricmc.net/v2/versions/loader/1.12.2 直接 400，
+官方 game 列表最老 1.14）。所以「1.12.2 + Fabric」以前在下载页里是灰的。
+
+真正的答案是 **Legacy Fabric**（另一个项目，meta.legacyfabric.net / maven.legacyfabric.net），
+支持 1.3～1.13.2，共 76 个版本，而且 profile json 与官方**结构完全一致** —— 所以安装链路不用分叉。
+
+### 做了什么
+1. 新增 `core/FabricMeta`：按 MC 版本分流 meta / maven / 镜像 base（1.13 及以前 → legacy；Legacy 没有 BMCLAPI 镜像，返回 null）。
+2. `LoaderVersions.fabric` / `LoaderInstaller.installFabric` 全走它；Legacy 时**不再尝试**官方 fabric-installer
+   （它把 meta 写死成 meta.fabricmc.net，只会 400，白跑一次）。
+3. `LoaderSupport`：Fabric 规则从「≥1.14」改成「≥1.14 **或** ≥1.3（Legacy）」→ 下载页不再把老版本判成不支持。
+4. **`writeProfile` 支持 `natives` 映射**（这是真 bug）：
+   `lwjgl-platform:2.9.4+legacyfabric.17` **没有 plain jar**，只有 `-natives-windows.jar`；
+   原来不看 `natives`、直接拼 plain 路径 → 404 → 整个安装失败。
+   现在带 `natives` 的库只下 classifier 包、解压到 `versions/<id>/natives`，不进 classpath。
+
+### 顺手修掉的两个基础设施问题
+- **`Net.download` 有无限卡死的可能**：重跑矩阵时 1.20.5 的库下载卡了**整整一小时**（`.part` 停在 9.5 MB 不动）。
+  `setConnectTimeout` 管不住 DNS 解析，`setReadTimeout` 也管不住某些半死连接。
+  → 加了**硬超时看门狗**：整个传输放到工作线程，`join(max(90s, connect + 2*read))`，到点 `disconnect()` 并抛错交给上层重试。
+- **`scripts/build-probe.ps1` 当时已经坏了**（只是没人重编）：它把 `core` 下所有 .java 一起编，
+  而 1.16.5 那轮新加的 `core/Compat.java`（引 net.minecraft）、`core/Log.java`（引 slf4j）在探针环境里没有依赖。
+  → 显式排除这两个文件（core 里没有任何代码调用它们）。另加了 `build-probe-alt.ps1`，
+  输出到 `tools\probe\out-alt`，好在矩阵跑着的时候单独验新功能。
+
+### 验证
+| 项 | 结果 |
+|---|---|
+| 规则表 | `FABRIC x 1.12.2 => OK`（以前是 NO）|
+| 安装 | `ProbeInstall testgame122 1.12.2 FABRIC` → loader 0.20.1，11 个库，**含 natives 1**，`complete=true` |
+| 启动 | `ProbeLaunch` → `mainClass=KnotClient`、`java=jre-1.8`、`OK 到达 Setting user` |
+| 工具链 | 本仓库 loom 1.9.2 + Gradle 8.14.2 不受影响；Legacy 需要的 loom 1.11.8 在 spike 里单独验证 |
+
+### 1.12.2 的 mod 本体：先不碰，但已经摸清
+用 legacy yarn（build.604）逐个核对主源码用到的 26 个 MC 类，**16 个同名**
+（`Screen`/`ButtonWidget`/`TextRenderer`/`DrawableHelper`/`MinecraftClient`/`Text`/`Identifier`…）。
+缺的是 `DrawContext`/`MatrixStack`（立即模式 GL）、`Registries`/`RegistryKey`（→ `Item.REGISTRY.put`）、
+`ItemGroup`（包名不同）、`ClickableWidget`（→ `Screen.buttonClicked` 分派）、`MutableText`（→ `LiteralText`）。
+spike 里写了个覆盖这些点的类，在 **loom 1.11.8 + legacy-looming 1.11.8 + `--release 8`** 下编译 + remapJar 都成功。
+结论：**是「多一个 compat 目标 + 一个独立 gradle 工程」，不是重写**。细节见 `spike/lf122/VERDICT.md`。
+
+**硬约束**：loom 1.16 要求 Gradle 9.x（本仓库 8.14.2）；而 Legacy Fabric API 聚合包 `1.13.5+1.12.2`
+是用 loom 1.15.3 打的，装进 loom 1.11.8 会报 `Mod was built with a newer version of Loom`。
+真要做，得先决定升不升 Gradle 9。

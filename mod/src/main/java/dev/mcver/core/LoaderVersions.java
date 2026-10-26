@@ -76,10 +76,12 @@ public final class LoaderVersions {
     // ---------------------------------------------------------------- Fabric
 
     private static List<Lv> fabric(String mc) throws Exception {
-        String body = Net.getMirrored(
-                "https://meta.fabricmc.net/v2/versions/loader/" + mc,
-                "https://bmclapi2.bangbang93.com/fabric-meta/v2/versions/loader/" + mc,
-                "Fabric 版本表");
+        String base = FabricMeta.metaBase(mc);
+        String mirror = FabricMeta.mirrorBase(mc);
+        String body = mirror == null
+                ? Net.get(base + "v2/versions/loader/" + mc, 10_000, 30_000)
+                : Net.getMirrored(base + "v2/versions/loader/" + mc,
+                        mirror + "v2/versions/loader/" + mc, "Fabric 版本表");
         List<Lv> out = new ArrayList<>();
         for (Object o : Json.arr(Json.parse(body))) {
             Map<String, Object> e = Json.obj(o);

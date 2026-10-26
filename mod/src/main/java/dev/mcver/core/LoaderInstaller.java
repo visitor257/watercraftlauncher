@@ -18,6 +18,7 @@ import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ExecutorService;
@@ -72,10 +73,12 @@ public final class LoaderInstaller {
         String loader = want;
         if (loader == null || loader.trim().isEmpty()) {
             log.accept("查询 Fabric loader 版本…");
-            String meta = Net.getMirrored(
-                    "https://meta.fabricmc.net/v2/versions/loader/" + mc,
-                    "https://bmclapi2.bangbang93.com/fabric-meta/v2/versions/loader/" + mc,
-                    "Fabric 版本表");
+            String mbase = FabricMeta.metaBase(mc);
+            String mmirror = FabricMeta.mirrorBase(mc);
+            String meta = mmirror == null
+                    ? Net.get(mbase + "v2/versions/loader/" + mc, 10_000, 30_000)
+                    : Net.getMirrored(mbase + "v2/versions/loader/" + mc,
+                            mmirror + "v2/versions/loader/" + mc, "Fabric 版本表");
             List<Object> list = Json.arr(Json.parse(meta));
             if (list.isEmpty()) throw new IOException("Fabric 不支持 " + mc);
             loader = Json.str(Json.obj(Json.obj(list.get(0)).get("loader")), "version", "");
@@ -85,14 +88,20 @@ public final class LoaderInstaller {
         String id = "fabric-loader-" + loader + "-" + mc;
         // 首选：拿官方 profile json 自己铺库（不依赖 installer 联网，快且稳）
         try {
-            String profile = Net.getMirrored(
-                    "https://meta.fabricmc.net/v2/versions/loader/" + mc + "/" + loader + "/profile/json",
-                    "https://bmclapi2.bangbang93.com/fabric-meta/v2/versions/loader/" + mc + "/" + loader
-                            + "/profile/json",
-                    "Fabric profile");
+            String pbase = FabricMeta.metaBase(mc);
+            String pmirror = FabricMeta.mirrorBase(mc);
+            String profile = pmirror == null
+                    ? Net.get(pbase + "v2/versions/loader/" + mc + "/" + loader + "/profile/json", 10_000, 30_000)
+                    : Net.getMirrored(pbase + "v2/versions/loader/" + mc + "/" + loader + "/profile/json",
+                            pmirror + "v2/versions/loader/" + mc + "/" + loader + "/profile/json",
+                            "Fabric profile");
             writeProfile(gameDir, id, profile, log);
             return id;
         } catch (Exception e) {
+            if (FabricMeta.isLegacy(mc)) {
+                // 官方 fabric-installer 把 meta 写死成 meta.fabricmc.net，对 Legacy 只会回 400，白跑一次
+                throw new IOException("用 Legacy Fabric 装 " + mc + " 失败：" + e.getMessage(), e);
+            }
             log.accept("profile 方式失败（" + e.getMessage() + "），改用 installer");
         }
 
@@ -121,45 +130,47 @@ public final class LoaderInstaller {
         log.accept("profile 里有 " + libs.size() + " 个库");
 
         Path libRoot = gameDir.resolve("libraries");
-        int done = 0, skipped = 0;
+        Path nativesDir = gameDir.resolve("versions").resolve(id).resolve("natives");
+        int done = 0, skipped = 0, nativeCount = 0;
         for (Object o : libs) {
             Map<String, Object> lib = Json.obj(o);
             String name = Json.str(lib, "name", "");
             if (name.isEmpty()) continue;
-            String path = mavenPath(name);
-            if (path == null) continue;
-
-            Path dst = libRoot.resolve(path);
-            if (Files.isRegularFile(dst) && Files.size(dst) > 512 && Net.isJar(dst)) { skipped++; continue; }
-            Files.deleteIfExists(dst);   // 有可能是上次断掉留下的半成品
-
             String base = Json.str(lib, "url", "https://maven.fabricmc.net/");
-            if (!base.endsWith("/")) base = base + "/";
-            List<String> candidates = new ArrayList<>();
-            // 镜像优先：maven.fabricmc.net 的 Cloudflare 从这边经常读超时
-            boolean officialFirst = "official".equals(Config.downloadSource);
-            if (officialFirst) candidates.add(base + path);
-            candidates.add("https://bmclapi2.bangbang93.com/maven/" + path);
-            candidates.add("https://maven.aliyun.com/repository/public/" + path);
-            candidates.add(base + path);
 
-            Exception last = null;
-            for (String u : candidates) {
-                for (int attempt = 0; attempt < 2; attempt++) {
-                    try {
-                        Net.download(u, dst, 8_000, 25_000);
-                        last = null;
-                        break;
-                    } catch (Exception e) {
-                        last = e;
+            // 带 natives 映射的库（1.13 及以前的 LWJGL 2.x）：**只有 classifier 包，没有 plain jar**。
+            // Legacy Fabric 的 profile 就是这种：lwjgl-platform-2.9.4+legacyfabric.17.jar 根本不存在，
+            // 只有 -natives-windows.jar。不特殊处理就会 404 然后整个安装失败。
+            Map<String, Object> nativesMap = Json.objOrNull(lib.get("natives"));
+            if (nativesMap != null) {
+                String cls = Json.str(nativesMap.get(osKey()));
+                if (cls == null) cls = Json.str(nativesMap.get("windows"));
+                if (cls != null) {
+                    String np = mavenPath(name + ":" + cls);
+                    if (np != null) {
+                        Path nd = libRoot.resolve(np);
+                        if (!isGoodJar(nd)) {
+                            Files.deleteIfExists(nd);
+                            fetchMaven(base, np, nd, name + ":" + cls);
+                        }
+                        Files.createDirectories(nativesDir);
+                        Installer.extractZip(nd, nativesDir);
+                        nativeCount++;
+                        done++;
                     }
                 }
-                if (last == null) break;
+                continue;   // natives 库不进 classpath，也不下 plain jar
             }
-            if (last != null) throw new IOException("下载库失败 " + name + ": " + last.getMessage());
+
+            String path = mavenPath(name);
+            if (path == null) continue;
+            Path dst = libRoot.resolve(path);
+            if (isGoodJar(dst)) { skipped++; continue; }
+            Files.deleteIfExists(dst);   // 有可能是上次断掉留下的半成品
+            fetchMaven(base, path, dst, name);
             done++;
         }
-        log.accept("库下载完成：新下 " + done + "，已有 " + skipped);
+        log.accept("库下载完成：新下 " + done + "（含 natives " + nativeCount + "），已有 " + skipped);
 
         Path verDir = gameDir.resolve("versions").resolve(id);
         Files.createDirectories(verDir);
@@ -181,6 +192,51 @@ public final class LoaderInstaller {
         String ext = p.length > 4 ? p[4] : "jar";
         if (!"jar".equals(ext)) file = artifact + "-" + version + classifier + "." + ext;
         return group + "/" + artifact + "/" + version + "/" + file;
+    }
+
+    /** 当前系统在 natives 映射里的 key。 */
+    private static String osKey() {
+        String os = System.getProperty("os.name", "").toLowerCase(Locale.ROOT);
+        if (os.contains("win")) return "windows";
+        if (os.contains("mac") || os.contains("darwin")) return "osx";
+        return "linux";
+    }
+
+    private static boolean isGoodJar(Path p) {
+        try {
+            return Files.isRegularFile(p) && Files.size(p) > 512 && Net.isJar(p);
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
+    /** 按候选源依次尝试下一个 maven 文件（镜像优先，最后回官方 / Legacy maven）。 */
+    private static void fetchMaven(String base, String path, Path dst, String label) throws Exception {
+        if (!base.endsWith("/")) base = base + "/";
+        List<String> candidates = new ArrayList<>();
+        // 镜像优先：maven.fabricmc.net 的 Cloudflare 从这边经常读超时
+        boolean officialFirst = "official".equals(Config.downloadSource);
+        if (officialFirst) candidates.add(base + path);
+        candidates.add("https://bmclapi2.bangbang93.com/maven/" + path);
+        candidates.add("https://maven.aliyun.com/repository/public/" + path);
+        candidates.add(base + path);
+        // Legacy Fabric（1.13 及以前）的 legacy LWJGL / intermediary 只在它自己的 maven 上
+        candidates.add("https://maven.legacyfabric.net/" + path);
+
+        Exception last = null;
+        for (String u : candidates) {
+            for (int attempt = 0; attempt < 2; attempt++) {
+                try {
+                    Net.download(u, dst, 8_000, 25_000);
+                    last = null;
+                    break;
+                } catch (Exception e) {
+                    last = e;
+                }
+            }
+            if (last == null) return;
+        }
+        throw new IOException("下载库失败 " + label + ": " + (last == null ? "未知" : last.getMessage()));
     }
 
     // ---------------------------------------------------------------- Quilt

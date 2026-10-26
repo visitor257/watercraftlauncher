@@ -27,7 +27,11 @@ if ($null -eq $javac) {
     exit 1
 }
 
-$core  = (Get-ChildItem (Join-Path $root 'mod\src\main\java\dev\mcver\core') -Filter *.java).FullName
+$core  = (Get-ChildItem (Join-Path $root 'mod\src\main\java\dev\mcver\core') -Filter *.java |
+          # Compat / Log 是「跟游戏/日志框架绑」的适配层（1.16.5 那轮新加的）：
+          # Compat 引 net.minecraft，Log 引 slf4j，而探针这两个都没有（core 里也没人调它们）。
+          # 不排掉的话，整个 probe 构建会以「找不到 Item / 找不到 org.slf4j」失败。
+          Where-Object { $_.Name -notin @('Compat.java', 'Log.java') }).FullName
 $probe = (Get-ChildItem (Join-Path $root 'tools\probe') -Recurse -Filter *.java |
           Where-Object { $_.FullName -notmatch '\\out\\' }).FullName
 

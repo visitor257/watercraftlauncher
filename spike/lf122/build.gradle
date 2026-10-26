@@ -1,0 +1,30 @@
+plugins {
+    id "fabric-loom" version "1.11.8"
+    id "legacy-looming" version "1.11.8"
+}
+
+version = '1.0.0'
+group = 'dev.example'
+
+repositories {
+    maven { url = 'https://maven.legacyfabric.net/' }
+    maven { url = 'https://maven.fabricmc.net/' }
+    mavenCentral()
+}
+
+dependencies {
+    minecraft "com.mojang:minecraft:1.12.2"
+    mappings(legacy.yarn('1.12.2', 604))
+    modImplementation "net.fabricmc:fabric-loader:0.14.25"
+    // 先不挂 Legacy Fabric API：官方聚合包是用 loom 1.15.3 打的，和 loom 1.11.8 不兼容（见 SPIKE 结论）
+}
+
+tasks.withType(JavaCompile).configureEach {
+    it.options.encoding = "UTF-8"
+    it.options.release = 8
+}
+
+java {
+    sourceCompatibility = JavaVersion.VERSION_1_8
+    targetCompatibility = JavaVersion.VERSION_1_8
+}

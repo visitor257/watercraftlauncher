@@ -14,7 +14,8 @@ import java.util.Set;
  *
  * <p>能不能用「n.xx+」这种区间规则一刀切？<b>只有 Fabric / Quilt / NeoForge 可以</b>：
  * <pre>
- *   Fabric    &gt;= 1.14      （1.13 及以前没有）
+ *   Fabric    &gt;= 1.14      （1.13 及以前没有）—— 但另有 Legacy Fabric 接管 1.3～1.13.2，
+ *                              所以实际等于全覆盖，见 {@link FabricMeta}
  *   Quilt     &gt;= 1.14.4
  *   NeoForge  &gt;= 1.20.1
  * </pre>
@@ -56,6 +57,8 @@ public final class LoaderSupport {
 
     /** 各加载器开始支持的正式版（区间规则用）。 */
     private static final String FABRIC_MIN = "1.14";
+    /** Legacy Fabric（另一个项目，见 {@link FabricMeta}）把 Fabric 往前提到了 1.3。 */
+    private static final String FABRIC_LEGACY_MIN = "1.3";
     private static final String QUILT_MIN = "1.14.4";
     private static final String NEOFORGE_MIN = "1.20.1";
 
@@ -66,8 +69,11 @@ public final class LoaderSupport {
         boolean release = isRelease(mc);
         switch (kind) {
             case FABRIC:
-                // Fabric 也发布快照/愚人节版构建，但规则表没法穷举 → MAYBE
-                return release ? (ge(mc, FABRIC_MIN) ? Verdict.OK : Verdict.NO) : Verdict.MAYBE;
+                // 官方 Fabric >= 1.14；再往前是 Legacy Fabric（1.3+），两段合起来等于全覆盖。
+                // 快照/愚人节版规则表没法穷举 → MAYBE
+                return release
+                        ? (ge(mc, FABRIC_MIN) || ge(mc, FABRIC_LEGACY_MIN) ? Verdict.OK : Verdict.NO)
+                        : Verdict.MAYBE;
             case QUILT:
                 return release ? (ge(mc, QUILT_MIN) ? Verdict.OK : Verdict.NO) : Verdict.MAYBE;
             case NEOFORGE:
@@ -87,7 +93,7 @@ public final class LoaderSupport {
         if (v != Verdict.NO) return null;
         switch (kind) {
             case FABRIC:
-                return "Fabric 从 1.14 才开始支持，" + mc + " 没有构建";
+                return "Fabric 与 Legacy Fabric 都没有 " + mc + " 的构建";
             case QUILT:
                 return "Quilt 从 1.14.4 才开始支持，" + mc + " 没有构建";
             case NEOFORGE:

@@ -78,23 +78,50 @@ public final class Net {
         Files.createDirectories(dst.getParent() == null ? dst.toAbsolutePath().getParent() : dst.getParent());
         Path tmp = dst.resolveSibling(dst.getFileName() + ".part");
 
-        HttpURLConnection c = open(url, connectMs, readMs);
-        try {
-            int code = c.getResponseCode();
-            if (code / 100 != 2) throw new IOException("HTTP " + code + "  " + url);
-            try (InputStream in = c.getInputStream(); OutputStream out = Files.newOutputStream(tmp)) {
-                byte[] buf = new byte[64 * 1024];
-                int n;
-                while ((n = in.read(buf)) > 0) out.write(buf, 0, n);
+        // 硬超时看门狗：connect/read 超时都管不住 DNS 解析，也管不住某些「半死」连接 ——
+        // 实测过一次 1.20.5 的库卡了整整一小时。这里把整个传输放到工作线程，
+        // 到点直接 disconnect 并抛错，交给上层重试。
+        final HttpURLConnection[] holder = new HttpURLConnection[1];
+        final IOException[] err = new IOException[1];
+        Thread worker = new Thread(() -> {
+            HttpURLConnection c = null;
+            try {
+                c = open(url, connectMs, readMs);
+                holder[0] = c;
+                int code = c.getResponseCode();
+                if (code / 100 != 2) throw new IOException("HTTP " + code + "  " + url);
+                try (InputStream in = c.getInputStream(); OutputStream out = Files.newOutputStream(tmp)) {
+                    byte[] buf = new byte[64 * 1024];
+                    int n;
+                    while ((n = in.read(buf)) > 0) out.write(buf, 0, n);
+                }
+            } catch (IOException e) {
+                err[0] = e;
+            } finally {
+                if (c != null) c.disconnect();
             }
-            Files.move(tmp, dst, StandardCopyOption.REPLACE_EXISTING);
-            return dst;
-        } catch (IOException e) {
-            try { Files.deleteIfExists(tmp); } catch (IOException ignored) { }
-            throw e;
-        } finally {
-            c.disconnect();
+        }, "mcver-dl");
+        worker.setDaemon(true);
+        worker.start();
+
+        long hardMs = Math.max(90_000L, (long) connectMs + 2L * readMs);
+        try {
+            worker.join(hardMs);
+        } catch (InterruptedException ie) {
+            Thread.currentThread().interrupt();
         }
+        if (worker.isAlive()) {
+            HttpURLConnection c = holder[0];
+            if (c != null) c.disconnect();
+            try { Files.deleteIfExists(tmp); } catch (IOException ignored) { }
+            throw new IOException("下载超时（" + (hardMs / 1000) + "s 没读完）  " + url);
+        }
+        if (err[0] != null) {
+            try { Files.deleteIfExists(tmp); } catch (IOException ignored) { }
+            throw err[0];
+        }
+        Files.move(tmp, dst, StandardCopyOption.REPLACE_EXISTING);
+        return dst;
     }
 
     private static HttpURLConnection open(String url, int connectMs, int readMs) throws IOException {

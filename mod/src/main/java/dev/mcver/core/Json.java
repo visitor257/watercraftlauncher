@@ -33,8 +33,13 @@ public final class Json {
     }
 
     @SuppressWarnings("unchecked")
-    public static List<Object> arr(Object o) {
-        return o instanceof List ? (List<Object>) o : new ArrayList<>();
+    public static List<Object> arr(Object o) {        return o instanceof List ? (List<Object>) o : new ArrayList<>();
+    }
+
+    /** 不是对象就返回 null（区别于 {@link #obj} 的「返回空 Map」）。 */
+    @SuppressWarnings("unchecked")
+    public static Map<String, Object> objOrNull(Object o) {
+        return o instanceof Map ? (Map<String, Object>) o : null;
     }
 
     public static String str(Map<String, Object> m, String k, String def) {
