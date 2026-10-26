@@ -11,7 +11,6 @@ import net.minecraft.client.MinecraftClient;
 import net.minecraft.client.gui.DrawContext;
 import net.minecraft.client.gui.widget.ButtonWidget;
 import net.minecraft.client.gui.widget.TextFieldWidget;
-import net.minecraft.client.session.Session;
 import net.minecraft.text.Text;
 
 import java.nio.file.Files;
@@ -444,7 +443,9 @@ public class LaunchPage extends Page {
         status = "正在准备 " + id + " …";
         statusColor = MainScreen.C_DIM;
 
-        Session s = MinecraftClient.getInstance().getSession();
+        // 注意：Session 的包名跨版本变过（1.20.1 是 client.util，1.21 起是 client.session），
+        // 所以这里只写 var，不 import 具体类；用到的三个方法在两个版本里签名一致。
+        var s = MinecraftClient.getInstance().getSession();
         Account acc = Config.account();
         final String player;
         final String uuid;

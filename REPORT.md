@@ -1070,3 +1070,61 @@ Fabric/Quilt 为 MAYBE（它们真发快照构建），Forge/NeoForge 直接 NO�
 - 含：源码（29 + compat 2）、资源、`dist/` 两个 jar、根目录 1.21.4 jar、`build.gradle` / `settings.gradle` / `gradle.properties` / wrapper、4 个脚本、6 份文档（README / HANDOVER / PLAN / PROGRESS / REPORT / VERIFY）、`.gitignore`。
 - 排除：`.tools`（274 MB Gradle）、`testgame`（727 MB）、`_keep`、`mod/build`、`mod/.gradle`、`mod/run`、`mod/config`（含 token）、`logs`、`*.bak*`、`config/mcver.json`。
 - 接力方需要自备 **JDK 21 + Gradle 8.12**（HANDOVER §1.2 写了三条获取路径，`.tools` 故意不打进包）。
+
+## 二十八、2026-10-26 上午：mod 本体新增 1.20.1 target（单源码 + compat，未复制工程）
+
+上一轮 P0 收尾后 PLAN 的 P2 是「老版本 target，顺序 1.20.1 → 1.19.4 → ...」。这一轮把 **1.20.1** 做完了，
+按既定纪律走 compat 覆盖，**没有复制项目**：主源码只有 4 个文件动了，compat 层 3 个 java + 1 个资源。
+
+### 28.1 真实差异（编译器的判决，不是猜的）
+
+先用 `-Pminecraft_version=1.20.1` 硬编一次，拿到的错误清单就是全部差异：
+
+| # | 位置 | 1.21.4 | 1.20.1 | 处理 |
+|---|---|---|---|---|
+| 1 | `McVerMod` | `Identifier.of(ns, path)` + `Item.Settings.registryKey(...)` | 只有 `new Identifier(ns, path)`，没有 registryKey | compat 覆盖 |
+| 2 | `McVerClient` | `UseItemCallback` 返回 `ActionResult` | 返回 `TypedActionResult<ItemStack>` | compat 覆盖 |
+| 3 | `Screen.renderBackground` | `(DrawContext,int,int,float)` | `(DrawContext)` | 抽出 `ChromeScreen` 基类，按 target 覆盖 |
+| 4 | `Screen.mouseScrolled` | 4 个参数（带横向） | 3 个参数 | 同上 |
+| 5 | `LaunchPage` 里的 `Session` | `client.session.Session` | `client.util.Session` | 不 import 具体类，改用 `var`（两个版本方法签名一致） |
+| 6 | `Util.getOperatingSystem().open(Path)` | 只有 `Path` 重载 | 只有 `File/URI/URL/String` | 新增 `core/Open.java`，直接走系统命令（explorer/open/xdg-open） |
+| 7 | 配方目录 | `data/<ns>/recipe/`（单数，`result.id`） | `data/<ns>/recipes/`（复数，`ingredients[].item`） | compat 资源层 `src/compat/1.20.1/resources/` |
+| 8 | 字节码 | release 21 | release 17（1.20.1 跑在 Java 17） | `gradle.properties` 新增 `java_release` |
+
+第 3、4 条是这一轮唯一的结构性改动：把「Screen 里跨版本改过签名的那两个钩子」抽到基类 `ChromeScreen`，
+主源码和 compat 各写一份 20 行的基类，**300 行的 MainScreen 不用复制**。
+
+### 28.2 顺手修掉的两个隐患
+
+- `fabric.mod.json` 里的 `minecraft` / `java` 依赖以前写死 `>=1.21` / `>=21`。现在按 target 自动算，
+  并且**卡上界**：`>=1.20.1 <1.20.2`、`>=1.21.4 <1.21.5`。理由是相邻补丁版本确实会改 API
+  （1.21.2 就改了 `UseItemCallback` 的返回类型），宁可让加载器挡住，也别让玩家进游戏后崩。
+- 构建脚本里 `-Pjava_dep=>=17` 这种值在 Windows 下会被 shell 的 `>` 吃掉（实测变成空字符串，
+  jar 里 `"java": ""`）。改成从 `minecraft_version` + `java_release` 在 build.gradle 里算，命令行不再传这些值。
+
+### 28.3 验证（L2 口径：装完 + 启动到 Setting user）
+
+`dist/watercraftlauncher-fabric-1.0.0-mc1.20.1.jar`（245,401 字节，class 版本 61）丢进
+`testgame/versions/V1.20.1-FABRIC/mods/`（Fabric API 0.92.2+1.20.1 一起放），用生产代码 `Launcher` 起真进程：
+
+- `[probe] requiredJava=17` → 实际用 `jdk-17.0.10` 起（版本要求的 Java 自动选对了）；
+- `Loading Minecraft 1.20.1 with Fabric Loader 0.20.1`、`- mcver 1.0.0` 在 mod 列表里；
+- `mcver: 物品已注册 mcver:download_tool`、`mcver: 客户端初始化完成`，**没有 Mixin / 注册 / 模型报错**；
+- `[probe] OK 到达 Setting user`。
+
+结论：1.20.1 这个 target **装得上、加载得了、物品注册成功**。
+GUI 截图没拿到（这台机器上无头起游戏时卡在 atlas 创建之后，和 mod 无关），**界面级验证留给实机**。
+
+### 28.4 产物与脚本
+
+- `scripts/build-all.ps1` 的 `` 加了一行（`java = '17'`）；`-Pjava_release` 统一传进去。
+- 三个 target 全绿：`dist/` 下 mc1.20.1 / mc1.21.1 / mc1.21.4 各 245 KB 左右。
+- 新增文件：`core/Open.java`、`ui/ChromeScreen.java`、`src/compat/1.20.1/{McVerMod,McVerClient,ui/ChromeScreen}.java`、
+  `src/compat/1.20.1/resources/data/mcver/recipes/download_tool.json`。
+
+### 28.5 下一个 target 的预估
+
+1.19.4 / 1.18.2 都在「1.20.1 之前」，主要差异会集中在 : `Screen` 的 `renderBackground`（更老的是
+`renderBackground(DrawContext)`，与 1.20.1 一致）、`RenderSystem`/`DrawContext` 的 `drawItem` 行为、
+以及 1.19.4 之前 `KeyBinding`/`InputUtil` 的包名没变但 `UseItemCallback` 还是 `TypedActionResult`。
+预计 compat 仍是 3 个文件上下；1.17 及更早要额外处理 `Text`/`TextRenderer` 与 `ItemGroup` 的差异，需要先探一次再定。

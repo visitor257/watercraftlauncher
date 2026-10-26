@@ -51,7 +51,8 @@
 |---|---|---|
 | 1.21.4 | `watercraftlauncher-fabric-1.0.0-mc1.21.4.jar` | ✅ 主 target |
 | 1.21.1 | `watercraftlauncher-fabric-1.0.0-mc1.21.1.jar` | ✅ 覆盖 2 个文件即通 |
-| 1.20.1 及更早 | — | ❌ 未做 |
+| 1.20.1 | `watercraftlauncher-fabric-1.0.0-mc1.20.1.jar` | ✅ 2026-10-26，compat 3 文件 + 1 资源 + `ChromeScreen` |
+| 1.19.4 及更早 | — | ❌ 未做 |
 
 ---
 
@@ -139,15 +140,15 @@ Fabric   23w13a_or_b（快照验证）
 - 覆盖 1.20.x / 1.21.x 所有正式版的安装路径（自动化跑一遍，记录失败点）；
 - 下载页对「不存在组合」给准确提示（已做，需回归）。
 
-### P2 — 老版本 target（3~5 人日，逐步）
+### P2 — 老版本 target（1.20.1 ✅，其余 3~5 人日，逐步）
 
-顺序按用户价值：1.20.1 → 1.19.4 → 1.18.2 → 1.16.5 → 1.12.2。
+顺序按用户价值：**1.20.1（已完成）** → 1.19.4 → 1.18.2 → 1.16.5 → 1.12.2。
 
 每加一个 target 的流程：
-1. `gradle.properties` 加一组参数；
-2. 编译，按报错写 `src/compat/<target>/`；
-3. `build-all.ps1` 加一行；
-4. 启动验证（`runClient` 或实机）。
+1. `scripts/build-all.ps1` 的 `$targets` 加一行（`mc` / `yarn` / `api` / `compat` / `java`）；
+2. 先直接编译，让编译器列出真实差异（不要猜）；
+3. 按报错写 `src/compat/<target>/java` 的整文件覆盖（资源差异放 `src/compat/<target>/resources`）；
+4. 启动验证（`ProbeLaunch` 或实机）。
 
 **注意**：1.20.5 换组件系统（NBT → DataComponent）是最大断层；1.12.2 基本等于重写（GUI 体系、渲染、资源路径全变），需要单独评估。
 

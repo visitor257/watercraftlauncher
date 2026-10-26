@@ -100,7 +100,7 @@ OptiFine 用错 Java），另外修掉 **3 个会造出假验证结果的工具�
 | 兼容层 | `mod/src/compat/1.21.1/java/dev/mcver/`（2 个文件）|
 | 构建 | `scripts/build-all.ps1`（自动探测 Gradle 8.x，产物进 `dist/`）|
 | 验证 | `scripts/build-probe.ps1` + `scripts/verify-matrix.ps1` |
-| 产物 | `dist/watercraftlauncher-fabric-1.0.0-mc{1.21.4,1.21.1}.jar`（约 243 KB）|
+| 产物 | `dist/watercraftlauncher-fabric-1.0.0-mc{1.21.4,1.21.1,1.20.1}.jar`（约 245 KB）|
 | 游戏内实际加载 | `<.minecraft>/versions/1.21.4-Fabric 0.19.5/mods/` |
 | 版本控制 | **已是 git 仓库**（本地，未配 remote；两个提交：baseline / 46-L2 修复） |
 
@@ -117,7 +117,7 @@ OptiFine 用错 Java），另外修掉 **3 个会造出假验证结果的工具�
 
 ### 6.2 已知不阻塞问题
 - `config/mcver.json` 明文存 refresh token（与 PCL/HMCL 一致，开源需在 README 提醒）。
-- mod 本体只有 1.21.4 / 1.21.1 两个 target。
+- mod 本体只有 1.21.4 / 1.21.1 / 1.20.1 三个 target。
 - 还没配 git remote（按用户要求：现在不上 GitHub）。
 
 ---
@@ -128,7 +128,7 @@ OptiFine 用错 Java），另外修掉 **3 个会造出假验证结果的工具�
 |---|---|---|
 | P0 验证矩阵 | 46/47 L2 | ✅ 完成（26.x 暂缓）|
 | P1 现代版本全覆盖 | 1.20.x / 1.21.x 逐版本扫安装 | 未做（断层已覆盖）|
-| P2 老版本 target | 1.20.1 → 1.19.4 → 1.18.2 → 1.16.5 / 1.12.2 | 未做 |
+| P2 老版本 target | 1.20.1 ✅（2026-10-26，compat 3 文件 + 1 资源）→ 1.19.4 → 1.18.2 → 1.16.5 / 1.12.2 | **进行中** |
 | P4 开源准备 | LICENSE / NOTICE / 文档脱敏 / Actions | 未做（用户：暂不上 GitHub）|
 
 ---
@@ -137,4 +137,19 @@ OptiFine 用错 Java），另外修掉 **3 个会造出假验证结果的工具�
 
 1. 26.x 什么时候做（需要装 Java 25，启动器已能自动下）？
 2. P1 全量扫（10+ 小时机器时间）要不要做，还是维持「断层覆盖 + 规则外推」？
-3. 老版本 mod target（1.20.1 起）优先级？
+3. 1.19.4 及更老的 mod target 是否接着推（1.20.1 已通，按预估每个 3~5 个文件）？
+
+## 9. 2026-10-26：mod 本体 1.20.1 target 已通
+
+- 做法：单源码 + compat（`src/compat/1.20.1/`），**没有复制工程**。
+- 编译器判出来的真实差异只有 4 处 API + 1 处包名 + 1 处资源目录 + Java 版本：
+  `Identifier.of` / `Item.Settings.registryKey` / `UseItemCallback` 返回类型 / `Screen.renderBackground` 与
+  `mouseScrolled` 的签名 / `Session` 的包名 / `OperatingSystem.open(Path)` / `recipe` vs `recipes` / release 21 vs 17。
+- 结构性改动只有一个：Screen 里那两个跨版本改过签名的钩子抽到 `ui/ChromeScreen`，主源码与 compat 各 20 行，
+  300 行的 `MainScreen` 不复制。
+- 顺带修：`fabric.mod.json` 的依赖改成按 target 自动算并**卡上界**（`>=1.20.1 <1.20.2` / `>=1.21.4 <1.21.5`），
+  相邻补丁版本改 API 时不会再“装得上但一进游戏就崩”。
+- 验证：`testgame/versions/V1.20.1-FABRIC` + Fabric API 0.92.2+1.20.1，生产代码 `Launcher` 起真进程 →
+  `requiredJava=17`（自动选了 JDK 17）、`mcver: 物品已注册` / `客户端初始化完成`、无 Mixin 报错、到达 `Setting user`。
+  **GUI 截图没拿到**（这台机器无头起游戏时卡在 atlas 创建后，与 mod 无关）→ 界面级验证留给实机。
+- 产物：`dist/watercraftlauncher-fabric-1.0.0-mc1.20.1.jar`（245,401 B，class 版本 61），三个 target 全绿。

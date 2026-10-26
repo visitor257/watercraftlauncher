@@ -23,7 +23,7 @@ import java.util.List;
  * 游戏内的启动器主界面：一块 400×232 的原版风格面板，左边导航，右边是页。
  * 文字一律不画阴影（浅灰底上深字加影子会糊成重影）。
  */
-public class MainScreen extends Screen {
+public class MainScreen extends ChromeScreen {
 
     public static final int PANEL_W = 400;
     public static final int PANEL_H = 232;
@@ -174,10 +174,10 @@ public class MainScreen extends Screen {
 
     private int tickCount;
 
+    /** 滚轮转给当前页（ChromeScreen 屏蔽了 1.20.1 / 1.21 的签名差异）。 */
     @Override
-    public boolean mouseScrolled(double mouseX, double mouseY, double horizontal, double vertical) {
-        if (pages.get(active).mouseScrolled(mouseX, mouseY, horizontal, vertical)) return true;
-        return super.mouseScrolled(mouseX, mouseY, horizontal, vertical);
+    protected boolean onScroll(double mouseX, double mouseY, double horizontal, double vertical) {
+        return pages.get(active).mouseScrolled(mouseX, mouseY, horizontal, vertical);
     }
 
     @Override
@@ -191,9 +191,9 @@ public class MainScreen extends Screen {
 
     // ================================================================ 渲染
 
+    /** 面板底 + 标题栏 + 导航分隔线（ChromeScreen 负责在正确的时机调它）。 */
     @Override
-    public void renderBackground(DrawContext ctx, int mouseX, int mouseY, float delta) {
-        super.renderBackground(ctx, mouseX, mouseY, delta);
+    protected void drawChrome(DrawContext ctx) {
         drawPanel(ctx);
         drawHeader(ctx);
         drawNavDivider(ctx);

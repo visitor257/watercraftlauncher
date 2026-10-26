@@ -10,7 +10,6 @@ import net.minecraft.client.gui.DrawContext;
 import net.minecraft.client.gui.widget.ButtonWidget;
 import net.minecraft.client.gui.widget.TextFieldWidget;
 import net.minecraft.text.Text;
-import net.minecraft.util.Util;
 
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
@@ -340,7 +339,7 @@ public class VersionsPage extends Page {
             return;
         }
         try {
-            Util.getOperatingSystem().open(newest);
+            if (!dev.mcver.core.Open.path(newest)) throw new java.io.IOException("系统命令启动失败");
             status = "已打开 " + newest.getFileName();
             statusColor = MainScreen.C_DIM;
         } catch (Exception e) {
@@ -363,7 +362,7 @@ public class VersionsPage extends Page {
             return;
         }
         try {
-            Util.getOperatingSystem().open(versionsDir().resolve(selected));
+            if (!dev.mcver.core.Open.path(versionsDir().resolve(selected))) throw new java.io.IOException("系统命令启动失败");
             status = "已打开版本目录";
             statusColor = MainScreen.C_DIM;
         } catch (Exception e) {

@@ -61,9 +61,9 @@ if ($null -eq $gradle) {
 Write-Host "Gradle: $gradle" -ForegroundColor Cyan
 
 $targets = @(
-    @{ name = '1.21.4'; mc = '1.21.4'; yarn = '1.21.4+build.8'; api = '0.119.4+1.21.4'; compat = '' },
-    @{ name = '1.21.1'; mc = '1.21.1'; yarn = '1.21.1+build.3'; api = '0.116.17+1.21.1'; compat = '1.21.1' }
-    # @{ name = '1.20.1'; mc = '1.20.1'; yarn = '1.20.1+build.10'; api = '0.92.2+1.20.1'; compat = '1.20.1' },
+    @{ name = '1.21.4'; mc = '1.21.4'; yarn = '1.21.4+build.8'; api = '0.119.4+1.21.4'; compat = '';       java = '21' },
+    @{ name = '1.21.1'; mc = '1.21.1'; yarn = '1.21.1+build.3'; api = '0.116.17+1.21.1'; compat = '1.21.1'; java = '21' },
+    @{ name = '1.20.1'; mc = '1.20.1'; yarn = '1.20.1+build.10'; api = '0.92.2+1.20.1';  compat = '1.20.1'; java = '17' }
 )
 
 $failed = @()
@@ -73,7 +73,8 @@ foreach ($t in $targets) {
         'build', '--console=plain',
         "-Pminecraft_version=$($t.mc)",
         "-Pyarn_mappings=$($t.yarn)",
-        "-Pfabric_api_version=$($t.api)"
+        "-Pfabric_api_version=$($t.api)",
+        "-Pjava_release=$($t.java)"
     )
     if ($Offline) { $gargs += '--offline' }
     if ($t.compat -ne '') { $gargs += "-Pcompat=$($t.compat)" }

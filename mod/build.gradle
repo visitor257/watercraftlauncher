@@ -50,12 +50,39 @@ if (!compatName.isEmpty()) {
     } else {
         throw new GradleException("找不到兼容层目录：${overlayDir}")
     }
+    // 资源层：data/ 目录名、模型 json 格式这些跨版本也会变（1.20.1 是 recipes/，1.21 是 recipe/）
+    def overlayRes = file("src/compat/${compatName}/resources")
+    if (overlayRes.exists()) {
+        sourceSets.main.resources.srcDir overlayRes
+        println "[compat] 追加资源目录：${overlayRes}"
+    }
 }
+
+// 每个 target 的 Java 字节码版本（1.21 → 21，1.20.x → 17）
+def javaRelease = (project.findProperty("java_release") ?: "21").toString().trim().toInteger()
+
+// fabric.mod.json 的依赖声明从 minecraft_version / java_release 算出来，不走命令行参数：
+// Windows 下 `-Pjava_dep=>=17` 这种值会被 shell 的 `>` 吃掉（实测变成空字符串）。
+// 上界卡在本版本之后的那一个补丁号：1.20.1 → ">=1.20.1 <1.20.2"，1.21.4 → ">=1.21.4 <1.21.5"。
+// 这是故意的：相邻补丁版本可能又改了 API（1.21.2 就改了 UseItemCallback），宁可加载不上也别崩。
+def mcVerParts = project.minecraft_version.toString().trim().tokenize('.')
+def mcDep
+if (mcVerParts.size() >= 3) {
+    def upper = "${mcVerParts[0]}.${mcVerParts[1]}.${(mcVerParts[2] as int) + 1}"
+    mcDep = ">=${project.minecraft_version} <${upper}"
+} else {
+    mcDep = ">=${project.minecraft_version}"
+}
+def javaDep = ">=${javaRelease}"
 
 processResources {
     inputs.property "version", project.version
+    inputs.property "minecraft_dep", mcDep
+    inputs.property "java_dep", javaDep
     filesMatching("fabric.mod.json") {
-        expand "version": project.version
+        expand "version": project.version,
+                "minecraft_dep": mcDep,
+                "java_dep": javaDep
     }
 
 }
@@ -63,7 +90,7 @@ processResources {
 tasks.withType(JavaCompile).configureEach {
     it.options.encoding = "UTF-8"
     // 例外：OptiFine 驱动必须编成 Java 8 字节码（见下面 compileRunner）
-    if (it.name != "compileRunner") it.options.release = 21
+    if (it.name != "compileRunner") it.options.release = javaRelease
 }
 
 // ---- OptiFine 驱动 ----
@@ -95,8 +122,8 @@ tasks.named("processResources").configure {
 
 java {
     withSourcesJar()
-    sourceCompatibility = JavaVersion.VERSION_21
-    targetCompatibility = JavaVersion.VERSION_21
+    sourceCompatibility = JavaVersion.toVersion(javaRelease)
+    targetCompatibility = JavaVersion.toVersion(javaRelease)
 }
 
 jar {
