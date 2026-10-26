@@ -32,6 +32,9 @@ public abstract class ChromeScreen extends Screen {
 
     @Override
     public void render(MatrixStack matrices, int mouseX, int mouseY, float delta) {
+        // 1.19.4 的 Screen.render 只遍历 drawables，**不会**调 renderBackground
+        // （自动调是 1.21.1 才有的行为）。不手动调就会整个面板不画、界面看起来是透明的。
+        renderBackground(matrices);
         super.render(matrices, mouseX, mouseY, delta);
         renderContent(Ctx.of(matrices), mouseX, mouseY, delta);
     }

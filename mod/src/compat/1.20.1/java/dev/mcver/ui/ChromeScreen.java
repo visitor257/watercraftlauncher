@@ -30,6 +30,11 @@ public abstract class ChromeScreen extends Screen {
 
     @Override
     public void render(DrawContext ctx, int mouseX, int mouseY, float delta) {
+        // 1.20.1 的 Screen.render 只遍历 drawables，**不会**调 renderBackground（1.21.1 才改成自动调）。
+        // 所以这里必须手动按顺序来：原版底 → 面板 → 控件 → 页内容。
+        // 2026-10-26 用户报「面板变透明」就是这个原因：drawChrome 写在 renderBackground 里，
+        // 而这个版本根本没人调 renderBackground。
+        renderBackground(ctx);
         super.render(ctx, mouseX, mouseY, delta);
         renderContent(Ctx.of(ctx), mouseX, mouseY, delta);
     }

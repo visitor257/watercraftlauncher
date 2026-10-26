@@ -155,8 +155,9 @@ public class MainScreen extends ChromeScreen {
         if (System.getenv("MCVER_TAB_CYCLE") != null && tickCount % 40 == 0) {
             switchTo((active + 1) % pages.size());
         }
-        // 自检：MCVER_SHOT=1 时每页切走前存一张图（绕过窗口被遮住的问题）
-        if (System.getenv("MCVER_SHOT") != null && tickCount % 40 == 38) {
+        // 自检：MCVER_SHOT=1 时每页切走前存一张图（绕过窗口被遮住的问题）。
+        // 必须等 contentLogged：无头启动时 atlas 要建 2~3 秒，早于这个点的截图全是启动画面。
+        if (System.getenv("MCVER_SHOT") != null && contentLogged && tickCount % 40 == 38) {
             shot("mcver-" + pages.get(active).nav() + ".png");
         }
     }
@@ -166,6 +167,7 @@ public class MainScreen extends ChromeScreen {
             MinecraftClient mc = MinecraftClient.getInstance();
             net.minecraft.client.util.ScreenshotRecorder.saveScreenshot(
                     mc.runDirectory, name, mc.getFramebuffer(), t -> { });
+            dev.mcver.McVerMod.LOGGER.info("mcver: shot saved {}", name);
         } catch (Throwable e) {
             System.err.println("[mcver] 截图失败: " + e);
         }

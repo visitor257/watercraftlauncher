@@ -1230,3 +1230,47 @@ BMCLAPI 302 → `mirrors.cernet.edu.cn` → `cernet.mirrors.ustc.edu.cn` 最后�
 - **像素级确认没拿到**：同一套钩子跑 1.21.4 能截到面板（`C6C6C6` 命中 6 万+像素，中心点就是面板色），
   但 1.19.4 / 1.20.1 在这台机器上截出来是启动画面（1.19.4 那块红橙 splash），说明是无头环境的问题，
   不是代码 —— 跟上一轮 1.20.1「卡在 atlas 之后」是同一个坑。界面最终确认留给实机。
+
+## 三十一、2026-10-26 11:40：用户报「面板变透明」—— 是我判断错了，真 bug
+
+用户实机起 1.20.1 / 1.19.4，发现 WCL 界面**背景板没了**（只剩按钮和字，底是透明的）。
+
+我上一轮把这些截图判成「无头环境限制」，是错的。用 javap 对着 remap 后的 jar 一看就清楚了：
+
+| 版本 | `Screen.render` 会不会自己调 `renderBackground` |
+|---|---|
+| 1.21.1 / 1.21.4 | **会**（字节码第 6 条就是 `invokevirtual renderBackground`）|
+| 1.20.1 / 1.19.4 | **不会**（只遍历 drawables）|
+
+而 `drawChrome`（面板底、标题栏、导航分隔线）被我写在 `renderBackground` 的 override 里。
+于是在 1.20.1 / 1.19.4 上 **根本没人调 renderBackground → 面板一次都没画**；
+1.21.x 上因为父类会自动调，所以一直正常。这完全对得上「1.21.4 截得到面板、1.20.1/1.19.4 截不到」。
+
+修法（只动两个 compat 文件）：`render` 里手动按顺序来 —— 原版底 → 面板 → 控件 → 页内容：
+
+.. code:: java
+
+    renderBackground(ctx);            // 父类版：世界/泥土底；我们的 override 接着画面板
+    super.render(ctx, mouseX, mouseY, delta);   // 只画控件，不会再调 renderBackground
+    renderContent(Ctx.of(ctx), ...);
+
+同时修了截图钩子的两个坑（否则验证永远看不见 UI）：
+1. `MCVER_SHOT` 现在等首帧内容渲染完才抓（无头起游戏时 atlas 要 2~3 秒，早抓全是启动画面）；
+2. 抓完记一条 `mcver: shot saved <name>`，探针可以拿它当 waitFor，避免「刚抓完就被 kill」。
+
+### 验证（真实窗口 PrintWindow 抓图，30 秒后）
+
+| 版本 | 窗口中心点 | C6C6C6 命中（4px 采样）|
+|---|---|---|
+| 1.19.4 | C6C6C6 | 15349 |
+| 1.20.1 | C6C6C6 | 15061 |
+| 1.21.4 | C6C6C6 | 15092 |
+
+三个都一致，面板画出来了。截图：`logs/build/hold-1.19.4.png` / `hold-1.20.1.png` / `hold-1.21.4.png`。
+
+### 教训（比 bug 本身重要）
+- **用户看到的才算验证**。我拿「日志里有 screen=MAIN」当界面通过的证据，太弱了；
+  `screen=MAIN` 只证明 `init()` 跑过，跟「画出来没有」是两件事。
+- 截图/像素判据要用**真实窗口**（PrintWindow）或至少等首帧渲染完；
+  `ScreenshotRecorder` 在无头环境早期抓的是启动画面，很容易把人骗过去 —— 这次骗了我两轮。
+- 「父类会不会调用某个钩子」是**版本行为**，必须 javap 看字节码，不能按「一般都会」想当然。
