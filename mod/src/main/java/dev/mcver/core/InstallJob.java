@@ -182,6 +182,11 @@ public final class InstallJob {
                 throw new Exception("装不了 " + loader.label + "（" + versionId + " 要求 Java "
                         + r.requiredJava + "）：" + (lastErr == null ? "未知原因" : lastErr.getMessage()));
             }
+            // 注意：这一行不能漏。当时重写「按版本要求选 Java」的循环（bug #6）把它删了，
+            // 后果是 result 停在原版 id 上 → 下一步改名把 **versions/<mc> 原版目录** 改成了目标名，
+            // 加载器目录另在一旁，启动验证跑的是原版（日志照样有 Setting user）→ 假通过。
+            // 2026-10-26 复现并修正：1.7.10/1.10.2/1.12.2 Forge、26.1 Forge/NeoForge、两个 Iris 组合都中招。
+            result = id;
         }
 
         // ---- 3) 光影加载器

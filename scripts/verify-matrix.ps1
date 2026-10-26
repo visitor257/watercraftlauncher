@@ -245,6 +245,17 @@ foreach ($c in $sel) {
         foreach ($l in $lout) {
             if ($l -match '^\[probe\] (ERROR|TIMEOUT|进程已退出) ?(.*)$') { $detail = ($l -replace '^\[probe\] ', '').Trim() }
         }
+
+        # 假通过防护（2026-10-26 踩过）：装了加载器却用原版主类启动，
+        # 日志照样出现 Setting user，看着是 OK。非 NONE 组合必须是加载器自己的主类。
+        if ($launch -eq 'OK' -and $c.kind -ne 'NONE') {
+            $mainClass = ''
+            foreach ($l in $lout) { if ($l -match '^\[probe\] mainClass=(\S+)') { $mainClass = $Matches[1] } }
+            if ($mainClass -eq 'net.minecraft.client.main.Main') {
+                $launch = 'FAIL'
+                $detail = "假通过：主类是原版 Main（版本 $installedId 没带上 $($c.kind)）"
+            }
+        }
     }
 
     $secs = [int]((Get-Date) - $t0).TotalSeconds

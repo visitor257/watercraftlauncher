@@ -1,6 +1,6 @@
 ﻿# 验证结果（自动生成）
 
-生成时间：2026-10-26 00:34  ·  测试目录：D:\Development\watercraftlauncher\testgame
+生成时间：2026-10-26 10:44  ·  测试目录：D:\Development\watercraftlauncher\testgame
 
 | MC | 加载器 | 光影 | 安装 | 启动 | 版本 id | 耗时 | 备注 |
 |---|---|---|---|---|---|---|---|
@@ -21,7 +21,7 @@
 | 1.20.6 | FORGE | NONE | OK | OK | V1.20.6-FORGE | 356s |  |
 | 1.21.1 | FORGE | NONE | OK | OK | V1.21.1-FORGE | 190s |  |
 | 1.21.4 | FORGE | NONE | OK | OK | V1.21.4-FORGE | 184s |  |
-| 26.1 | FORGE | NONE | FAIL | - |  | 93s | IOException: installer �˳��� 1 |
+| 26.1 | FORGE | NONE | OK | OK | 26.1-forge-62.0.9 | 23s |  |
 | 1.20.1 | NEOFORGE | NONE | OK | OK | V1.20.1-NEOFORGE | 164s |  |
 | 1.20.2 | NEOFORGE | NONE | OK | OK | V1.20.2-NEOFORGE | 441s |  |
 | 1.20.4 | NEOFORGE | NONE | OK | OK | V1.20.4-NEOFORGE | 131s |  |
@@ -42,14 +42,15 @@
 | 1.18.2 | FORGE | NONE | OK | OK | V1.18.2-FORGE | 124s |  |
 | 1.19.4 | FORGE | NONE | OK | OK | V1.19.4-FORGE | 595s |  |
 | 1.21.4 | NEOFORGE | NONE | OK | OK | V1.21.4-NEOFORGE | 129s |  |
-| 1.7.10 | FORGE | NONE | OK | OK | V1.7.10-FORGE | 12s |  |
-| 1.10.2 | FORGE | NONE | OK | OK | V1.10.2-FORGE | 29s |  |
-| 1.12.2 | FORGE | NONE | OK | OK | V1.12.2-FORGE | 73s |  |
+| 1.7.10 | FORGE | NONE | OK | OK | 1.7.10-Forge10.13.4.1614-1.7.10 | 16s |  |
+| 1.10.2 | FORGE | NONE | OK | OK | 1.10.2-forge1.10.2-12.18.3.2511 | 15s |  |
+| 1.12.2 | FORGE | NONE | OK | OK | 1.12.2-forge-14.23.5.2864 | 14s |  |
 | 1.12.2 | NONE | OPTIFINE | OK | OK | V1.12.2-NONE-OPTIFINE | 13s |  |
 | 1.19.4 | NONE | OPTIFINE | OK | OK | V1.19.4-NONE-OPTIFINE | 23s |  |
 | 1.20.1 | NONE | OPTIFINE | OK | OK | V1.20.1-NONE-OPTIFINE | 20s |  |
 | 1.21.4 | NONE | OPTIFINE | OK | OK | V1.21.4-NONE-OPTIFINE | 49s |  |
-| 1.20.1 | FABRIC | IRIS | OK | OK | V1.20.1-FABRIC-IRIS | 29s |  |
-| 1.21.4 | FABRIC | IRIS | OK | OK | V1.21.4-FABRIC-IRIS | 27s |  |
+| 1.20.1 | FABRIC | IRIS | OK | OK | fabric-loader-0.20.1-1.20.1 | 31s |  |
+| 1.21.4 | FABRIC | IRIS | OK | OK | fabric-loader-0.20.1-1.21.4 | 22s |  |
+| 26.1 | NEOFORGE | NONE | OK | OK | neoforge-26.1.0.19-beta | 21s |  |
 
-L2（装 + 启）通过：**46** / 47
+L2（装 + 启）通过：**48** / 48

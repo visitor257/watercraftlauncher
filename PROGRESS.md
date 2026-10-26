@@ -8,13 +8,13 @@
 
 ## 0. 一句话
 
-**6 个加载器（Fabric / Quilt / Forge / NeoForge / OptiFine / Iris）在 46 个「MC 版本 × 加载器」
+**6 个加载器（Fabric / Quilt / Forge / NeoForge / OptiFine / Iris）在 48 个「MC 版本 × 加载器」
 组合上实测到 L2（装完 + 启动到 `Setting user`）**，覆盖 1.7.10 → 1.26 的每个版本纪元断层。
-这轮挖出并修掉 **8 个真 bug**（3 个是崩溃/阻塞级：缺 Java 运行时自动下载、老安装器无 `--installClient`、
+这轮挖出并修掉 **10 个真 bug**（3 个是崩溃/阻塞级：缺 Java 运行时自动下载、老安装器无 `--installClient`、
 OptiFine 用错 Java），另外修掉 **3 个会造出假验证结果的工具链坑**。
 
 **仍然不能对外的说法**：「所有版本全支持」。现在能说的是：
-**「按版本断层实测 46 个组合，全部通过；其余版本按规则表判定，未逐版本实测」**。
+**「按版本断层实测 48 个组合，全部通过；其余版本按规则表判定，未逐版本实测」**。
 
 ---
 
@@ -40,15 +40,15 @@ OptiFine 用错 Java），另外修掉 **3 个会造出假验证结果的工具�
 | 1.20.6 | Fabric / Forge / NeoForge | L2 |
 | 1.21.1 / 1.21.4 | Fabric / Forge / NeoForge | L2（+ Quilt 1.21.4、OptiFine、Iris）|
 | 1.21.5 / 1.21.8 | Fabric | L2 |
-| **26.1** | Fabric | L2（需要 Java 25，启动器会自动下）|
+| **26.1** | Fabric / **Forge / NeoForge** | L2（需要 Java 25，启动器会自动下）|
 
-按加载器：Fabric 16 · Forge 14 · NeoForge 6 · Quilt 4 · OptiFine 4 · Iris 2 = **46 个 L2**。
+按加载器：Fabric 16 · Forge 15 · NeoForge 7 · Quilt 4 · OptiFine 4 · Iris 2 = **48 个 L2**。
 
 ### 1.1 已知例外 / 未验证（别当成支持）
 
 | 项 | 状态 |
 |---|---|
-| **26.1 Forge / 26.1 NeoForge** | 未通过（26.x 要 Java 25，用户决定暂缓）|
+| 1.14.1/1.14.2/1.14.3、1.15/1.15.1、1.16.1~1.16.4、1.17 其余、1.20 其余… | 规则表判定可装，**未逐版本实测** |
 | 1.14.1/1.14.2/1.14.3、1.15/1.15.1、1.16.1~1.16.4、1.17 其余、1.20 其余… | 规则表判定可装，**未逐版本实测** |
 | 快照 / 愚人节版 | 未跑（Fabric/Quilt 规则表标 MAYBE）|
 | mod 本体 | 只出 1.21.4 / 1.21.1 两个包 |
@@ -58,7 +58,7 @@ OptiFine 用错 Java），另外修掉 **3 个会造出假验证结果的工具�
 
 ---
 
-## 2. 这轮挖出并修掉的 8 个真 bug
+## 2. 这轮挖出并修掉的 10 个真 bug
 
 | # | 现象 | 根因 | 修复 |
 |---|---|---|---|
@@ -70,12 +70,19 @@ OptiFine 用错 Java），另外修掉 **3 个会造出假验证结果的工具�
 | 6 | 老版本拿 Java 17 跑 2014 年的安装器 | `Math.max(17, requiredJava)` 写死 | 先按版本要求（1.7.10→8），失败再退 17+ |
 | 7 | OptiFine 全挂 NPE | 矩阵没指定版本时 `ofId` 为 null | null → 取推荐版 |
 | 8 | OptiFine 1.12.2/1.19.4 `UnsupportedClassVersionError` | 安装器只能在对应 Java 上跑，mod 本体是 Java 21 字节码 | 驱动单独编 **release 8** 成 `optifine-runner.jar` 资源，运行时解出来用目标 Java 起子进程 |
+| 9 | **启动验证假通过**：装了加载器却跑的是原版 | 重写「按版本要求选 Java」循环（bug 6）时把 `result = id;` 删了 → 下一步改名把 **原版目录**改成了目标名，日志照样有 `Setting user` | 补回 `result = id;`；`verify-matrix` 加断言「非 NONE 组合的主类不能是 `net.minecraft.client.main.Main`」；重装了 7 个中招组合 |
+| 10 | 26.1 Forge 偶发 `installer 退出码 1` | 镜像链某一跳回 403，把错误页（14 KB）当成 `mcp_config` 的 zip 写进了 `libraries/`，同一次安装里被安装器读到 | 安装器失败后先按清单 `purgeInvalidLibraries()` 清坏文件 + 重新预取，再重试一次；26.1 Forge/NeoForge 现已 L2 |
 
 ## 3. 验证工具链的 3 个坑（会造假结果）
 
 1. PowerShell 5.1 把原生命令 stderr 当异常 → 一行警告跑挂整批 → 改 .NET `Process` 收流。
 2. 矩阵运行期间重编探针 → `.class` 被删 → 后续全 `NoClassDefFoundError`（**造出 11 个假失败**）→ `.run.lock` 互斥。
 3. `javapath\java.exe` 是壳，kill 父留僵尸 java 写同一目录 → 用 `JAVA_HOME` 真实路径 + 锁。
+4. **只看到 `Setting user` 不算启动成功**：装了加载器却没接上，原版也会打出这句。
+   必须同时核主类（Fabric/Quilt→`KnotClient`、Forge/NeoForge→`Bootstrap*`/`modlauncher`、
+   OptiFine 1.12.2→`launchwrapper.Launch`），否则会把「装了个原版」当成通过。
+5. **不要拿 MC 版本号当版本目录 hint**：`versions/26.1` 这种原版目录也包含 `26.1`，
+   按 mtime 取最新就会拿原版去启动。以 `install_profile.json` 的 `version` 字段为准。
 
 ---
 
@@ -102,7 +109,7 @@ OptiFine 用错 Java），另外修掉 **3 个会造出假验证结果的工具�
 | 验证 | `scripts/build-probe.ps1` + `scripts/verify-matrix.ps1` |
 | 产物 | `dist/watercraftlauncher-fabric-1.0.0-mc{1.21.4,1.21.1,1.20.1}.jar`（约 245 KB）|
 | 游戏内实际加载 | `<.minecraft>/versions/1.21.4-Fabric 0.19.5/mods/` |
-| 版本控制 | **已是 git 仓库**（本地，未配 remote；两个提交：baseline / 46-L2 修复） |
+| 版本控制 | **已是 git 仓库**（本地，未配 remote；4 个提交：baseline / 46-L2 修复 / 1.20.1 target / 假通过与 26.x） |
 
 部署三处（少一处就有人测到旧版）：`mod/build/libs` → `dist/` 与项目根 → 游戏 `mods/`。
 
@@ -111,7 +118,7 @@ OptiFine 用错 Java），另外修掉 **3 个会造出假验证结果的工具�
 ## 6. 还没做到的
 
 ### 6.1 验证缺口
-- 26.1 的 Forge / NeoForge（要 Java 25，用户暂缓；启动器能力其实已具备）。
+- ~~26.1 的 Forge / NeoForge（要 Java 25，用户暂缓；启动器能力其实已具备）~~ —— **2026-10-26 已通**（启动器自动下载 Java 25 运行时）。
 - 103 个正式版里只实测了 22 个 MC 版本 × 部分加载器。
 - 快照 / 愚人节版一个没跑。
 
@@ -126,7 +133,7 @@ OptiFine 用错 Java），另外修掉 **3 个会造出假验证结果的工具�
 
 | 阶段 | 内容 | 状态 |
 |---|---|---|
-| P0 验证矩阵 | 46/47 L2 | ✅ 完成（26.x 暂缓）|
+| P0 验证矩阵 | **48/48 L2** | ✅ 完成（含 26.1 Forge/NeoForge；已修掉一次假通过）|
 | P1 现代版本全覆盖 | 1.20.x / 1.21.x 逐版本扫安装 | 未做（断层已覆盖）|
 | P2 老版本 target | 1.20.1 ✅（2026-10-26，compat 3 文件 + 1 资源）→ 1.19.4 → 1.18.2 → 1.16.5 / 1.12.2 | **进行中** |
 | P4 开源准备 | LICENSE / NOTICE / 文档脱敏 / Actions | 未做（用户：暂不上 GitHub）|

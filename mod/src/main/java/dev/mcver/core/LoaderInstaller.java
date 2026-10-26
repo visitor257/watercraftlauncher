@@ -293,15 +293,49 @@ public final class LoaderInstaller {
                 log.accept("这批老安装器没有 --installClient，改用 legacy install_profile 流程");
                 return installViaLegacyProfile(gameDir, jar, log);
             }
-            // 离线跑不过（多半是安装器还要拉我们没读到的文件）→ 退回镜像模式让它自己下
-            log.accept("离线安装失败（" + e.getMessage() + "），改用镜像模式重试");
-            run(java, log, "-jar", jar.toString(),
-                    "--installClient", gameDir.toAbsolutePath().toString(),
-                    "--mirror", "https://bmclapi2.bangbang93.com/maven/");
+            // 踩过的坑（26.1 Forge，2026-10-26）：镜像链某一跳回 403，把错误页（14 KB）
+            // 当成 mcp_config 的 zip 写进了 libraries/。下次预取虽然会按 sha1 判它不合格、
+            // 重下正确文件，但**同一次运行**里那个坏文件已经被安装器读过 → 退出码 1。
+            // 所以失败后先按清单把不合格的库文件清掉、重新预取一遍，再给一次离线机会。
+            int purged = purgeInvalidLibraries(gameDir, jar, log);
+            int again = prefetchInstallerLibraries(gameDir, jar, log);
+            log.accept("离线安装失败（" + e.getMessage() + "）；清掉 " + purged
+                    + " 个损坏的库文件，重新预取 " + again + " 个后重试一次");
+            try {
+                run(java, log, "-jar", jar.toString(),
+                        "--installClient", gameDir.toAbsolutePath().toString(), "--offline");
+            } catch (Exception e2) {
+                // 还不行（多半是安装器还要拉我们没读到的文件）→ 退回镜像模式让它自己下
+                log.accept("第二次离线安装仍失败（" + e2.getMessage() + "），改用镜像模式");
+                run(java, log, "-jar", jar.toString(),
+                        "--installClient", gameDir.toAbsolutePath().toString(),
+                        "--mirror", "https://bmclapi2.bangbang93.com/maven/");
+            }
         }
         // 版本 id 不要硬猜：1.20.2 是 forge-<mc>-<ver>，1.20.3 起变成 <mc>-forge<ver>
-        String found = findFreshVersionId(gameDir, full, ver);
-        return found != null ? found : "forge-" + full;
+        // 而且**不能拿 MC 版本号当 hint**——versions/26.1 这种纯原版目录也包含 "26.1"，
+        // 一旦它比刚装的 Forge 目录新，就会拿原版去启动（2026-10-26 真踩到：26.1 Forge
+        // 的启动验证跑的是 net.minecraft.client.main.Main，属于假通过）。
+        // 以 install_profile.json 里的 version 字段为准，那才是安装器真正写出来的 id。
+        String profId = profileVersionId(jar);
+        String found = null;
+        if (profId != null && Files.isDirectory(gameDir.resolve("versions").resolve(profId))) {
+            found = profId;
+        }
+        if (found == null) found = findFreshVersionId(gameDir, profId, ver);
+        return found != null ? found : (profId != null ? profId : "forge-" + full);
+    }
+
+    /** install_profile.json 里的 {@code version}：安装器最终写出的版本 id（拿不准就返回 null）。 */
+    static String profileVersionId(Path installerJar) {
+        try (java.util.zip.ZipFile z = new java.util.zip.ZipFile(installerJar.toFile())) {
+            String txt = zipText(z, "install_profile.json");
+            if (txt == null) return null;
+            String v = Json.str(Json.obj(Json.parse(txt)), "version", null);
+            return v == null || v.isBlank() ? null : v.trim();
+        } catch (Exception e) {
+            return null;
+        }
     }
 
     /**
@@ -330,31 +364,8 @@ public final class LoaderInstaller {
         //   accesstransformers/1.0.5/accesstransformers-1.0.5-shadowed.jar
         // （版本 1.0.5 + classifier shadowed），而清单里的 path 字段又是错的。
         Map<String, Fetch> fetches = new LinkedHashMap<>();
-        try (java.util.zip.ZipFile z = new java.util.zip.ZipFile(installerJar.toFile())) {
-            String verTxt = zipText(z, "version.json");
-            if (verTxt != null) collectFetches(Json.obj(Json.parse(verTxt)), fetches);
-
-            String profTxt = zipText(z, "install_profile.json");
-            if (profTxt != null) {
-                Map<String, Object> prof = Json.obj(Json.parse(profTxt));
-                collectFetches(prof, fetches);
-                for (Object o : nz(Json.arr(prof.get("processors")))) {
-                    Map<String, Object> proc = Json.obj(o);
-                    if (proc == null) continue;
-                    for (Object c : nz(Json.arr(proc.get("classpath")))) {
-                        addCoord(fetches, Json.str(c));
-                    }
-                    for (Object a : nz(Json.arr(proc.get("args")))) {
-                        String s = Json.str(a);
-                        if (s == null) continue;
-                        s = s.trim();
-                        if (s.startsWith("[") && s.endsWith("]")) {
-                            String inner = s.substring(1, s.length() - 1).trim();
-                            if (inner.split(":").length >= 3) addCoord(fetches, inner);
-                        }
-                    }
-                }
-            }
+        try {
+            collectAllFetches(installerJar, fetches);
         } catch (Exception e) {
             log.accept("读安装器清单失败：" + e.getMessage());
             return 0;
@@ -376,6 +387,65 @@ public final class LoaderInstaller {
         }
         for (String f : failed) log.accept("  预取失败 " + f);
         return ok;
+    }
+
+    /**
+     * 把安装器两份清单里声明的所有库收进 fetches（version.json + install_profile）。
+     *
+     * <p>预取和“清理损坏文件”共用这份逻辑，避免两边判定不一致。
+     */
+    private static void collectAllFetches(Path installerJar, Map<String, Fetch> fetches) throws Exception {
+        try (java.util.zip.ZipFile z = new java.util.zip.ZipFile(installerJar.toFile())) {
+            String verTxt = zipText(z, "version.json");
+            if (verTxt != null) collectFetches(Json.obj(Json.parse(verTxt)), fetches);
+
+            String profTxt = zipText(z, "install_profile.json");
+            if (profTxt == null) return;
+            Map<String, Object> prof = Json.obj(Json.parse(profTxt));
+            collectFetches(prof, fetches);
+            for (Object o : nz(Json.arr(prof.get("processors")))) {
+                Map<String, Object> proc = Json.obj(o);
+                if (proc == null) continue;
+                for (Object c : nz(Json.arr(proc.get("classpath")))) {
+                    addCoord(fetches, Json.str(c));
+                }
+                for (Object a : nz(Json.arr(proc.get("args")))) {
+                    String s = Json.str(a);
+                    if (s == null) continue;
+                    s = s.trim();
+                    if (s.startsWith("[") && s.endsWith("]")) {
+                        String inner = s.substring(1, s.length() - 1).trim();
+                        if (inner.split(":").length >= 3) addCoord(fetches, inner);
+                    }
+                }
+            }
+        }
+    }
+
+    /**
+     * 按清单把 libraries/ 下不合格的文件删掉（镜像回 403 时会把错误页写成 .zip/.jar），
+     * 返回删了多少个。安装器失败后调用，让下一次预取/重试从干净状态开始。
+     */
+    static int purgeInvalidLibraries(Path gameDir, Path installerJar, Consumer<String> log) {
+        Map<String, Fetch> fetches = new LinkedHashMap<>();
+        try {
+            collectAllFetches(installerJar, fetches);
+        } catch (Exception e) {
+            return 0;
+        }
+        int purged = 0;
+        for (Fetch f : fetches.values()) {
+            Path dst = gameDir.resolve("libraries").resolve(f.rel());
+            try {
+                if (!Files.isRegularFile(dst)) continue;
+                if (valid(dst, f)) continue;
+                long was = Files.size(dst);
+                Files.deleteIfExists(dst);
+                purged++;
+                log.accept("  删除损坏的库文件 " + f.rel() + "（实际 " + was + " 字节，清单 " + f.size() + "）");
+            } catch (Exception ignored) { }
+        }
+        return purged;
     }
 
     /** 文件在不在、大小/哈希对不对。清单没给 size/sha1 时只要求非空且不是半截 jar。 */
@@ -608,6 +678,9 @@ public final class LoaderInstaller {
     /**
      * 装完之后去 versions/ 里找刚生成的版本目录（名字里带任一 hint，多个命中取最新的）。
      * Forge/NeoForge 不同版本命名不一致，硬拼字符串会踩坑。
+     *
+     * <p>hint 必须是**加载器专属**的串（版本 id / 构建号），不能拿 MC 版本号当 hint，
+     * 否则会命中纯原版目录。
      */
     static String findFreshVersionId(Path gameDir, String... hints) {
         Path dir = gameDir.resolve("versions");
@@ -669,12 +742,22 @@ public final class LoaderInstaller {
                 run(java, log, "-jar", jar.toString(),
                         "--installClient", gameDir.toAbsolutePath().toString(), "--offline");
             } catch (IOException offErr) {
-                log.accept("离线安装失败（" + offErr.getMessage() + "），退回在线模式");
-                run(java, log, "-jar", jar.toString(),
-                        "--installClient", gameDir.toAbsolutePath().toString(),
-                        "--mirror", "https://bmclapi2.bangbang93.com/maven/");
+                // 同 Forge：先清掉被镜像错误页污染的库文件，重新预取，再给一次离线机会
+                int purged = purgeInvalidLibraries(gameDir, jar, log);
+                int again = prefetchInstallerLibraries(gameDir, jar, log);
+                log.accept("离线安装失败（" + offErr.getMessage() + "）；清掉 " + purged
+                        + " 个损坏的库文件，重新预取 " + again + " 个后重试一次");
+                try {
+                    run(java, log, "-jar", jar.toString(),
+                            "--installClient", gameDir.toAbsolutePath().toString(), "--offline");
+                } catch (IOException offErr2) {
+                    log.accept("第二次离线安装仍失败（" + offErr2.getMessage() + "），退回在线模式");
+                    run(java, log, "-jar", jar.toString(),
+                            "--installClient", gameDir.toAbsolutePath().toString(),
+                            "--mirror", "https://bmclapi2.bangbang93.com/maven/");
+                }
             }
-            String found = findFreshVersionId(gameDir, bare);
+            String found = findFreshVersionId(gameDir, profileVersionId(jar), bare);
             return found != null ? found : "neoforge-" + bare;
         } catch (IOException e) {
             // NeoForge 20.2+ 的安装器把客户端选项砍了（只有 --installServer/--extract/--mirror/--offline），

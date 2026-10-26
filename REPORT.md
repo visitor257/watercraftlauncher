@@ -1128,3 +1128,51 @@ GUI 截图没拿到（这台机器上无头起游戏时卡在 atlas 创建之后
 `renderBackground(DrawContext)`，与 1.20.1 一致）、`RenderSystem`/`DrawContext` 的 `drawItem` 行为、
 以及 1.19.4 之前 `KeyBinding`/`InputUtil` 的包名没变但 `UseItemCallback` 还是 `TypedActionResult`。
 预计 compat 仍是 3 个文件上下；1.17 及更早要额外处理 `Text`/`TextRenderer` 与 `ItemGroup` 的差异，需要先探一次再定。
+
+## 二十九、2026-10-26 10:20–11:05：唯一的失败（26.1 Forge）如何处理 + 挖出一个假通过 bug
+
+用户问「没有失败需要处理吗」，于是把 CSV 按「每个组合最后一行」重算了一遍：46 OK，1 失败（26.1-FORGE）。
+本以为是 26.x 要 Java 25 的老问题，实测不是——是另外两件事。
+
+### 29.1 26.1 Forge 的真实根因：镜像回 403，错误页被当成 zip
+
+`install_profile.json` 里 `de.oceanlabs.mcp:mcp_config:26.1-20260326.105027@zip` 这一条，
+BMCLAPI 302 → `mirrors.cernet.edu.cn` → `cernet.mirrors.ustc.edu.cn` 最后一跳回 **403**，
+而那个 403 的响应体（14,163 字节）被当成 zip 落盘。清单里明确写了 `size=407294 / sha1=7173fa93…`，
+但坏文件是**安装器自己**在 `--offline` 里写的，预取阶段来不及校验。
+
+修法（两层）：
+1. `installForge` / `installNeoForge` 第一次离线失败后，先 `purgeInvalidLibraries()` 按清单把不符合
+   sha1/size 的库文件删掉，再重新预取一遍，然后重试一次离线；还不行才退 `--mirror`。
+2. 把「读两份清单收集库」抽成 `collectAllFetches()`，预取和清理共用同一套判定，避免两边不一致。
+
+然后直接重跑：26.1 Forge **installed=OK**。顺手把从来没跑过的 26.1 NeoForge 也跑了 —— 也是 OK。
+也就是说 **26.x 现在 3 个加载器全通**（Fabric 之前就过了，Java 25 运行时是启动器自动下的）。
+
+### 29.2 但重跑暴露一个更严重的问题：假通过
+
+26.1 Forge 重跑后结果里 `resultVersionId=26.1`（原版 id），启动日志 `mainClass=net.minecraft.client.main.Main`。
+也就是说**装的是原版，启动的也是原版**，日志里照样有 `Setting user`，按原口径算「L2 通过」。
+
+根因在 `InstallJob`：重写「按版本要求选 Java」那段循环（bug #6）时，把原来的
+`if (id != null) result = id;` 弄丢了。于是 `result` 停在原版 id，下一步「改名」把
+**`versions/<mc>` 原版目录**改成了 `V<mc>-<KIND>`，加载器目录另在一旁。
+
+自查全部 47 个「带加载器」的版本目录主类，中招 7 个（都是 10-25 20:30 之后跑的）：
+1.7.10 / 1.10.2 / 1.12.2 Forge、26.1 Forge、26.1 NeoForge、1.20.1-FABRIC-IRIS、1.21.4-FABRIC-IRIS。
+
+修法：
+1. `InstallJob` 补回 `result = id;`（带注释说明为什么不能漏）。
+2. `verify-matrix.ps1` 加硬断言：非 NONE 组合若 `mainClass=net.minecraft.client.main.Main` → 直接判 FAIL
+   （信息：「假通过：主类是原版 Main」）。
+3. `findFreshVersionId` 不再拿 MC 版本号当 hint（`versions/26.1` 也含 `26.1`），改以
+   `install_profile.json` 的 `version` 字段为准。
+4. 7 个中招组合逐个 `-Force` 重装复验，现在 `version` 列都是真实加载器 id
+   （`26.1-forge-62.0.9` / `neoforge-26.1.0.19-beta` / `1.7.10-Forge10.13.4.1614-1.7.10` …）。
+
+### 29.3 现在的口径
+
+- `verification/results.csv` 按最后一行算：**48/48 L2，零失败**。
+- 另外做了一次独立审计：47 个带加载器的组合，版本 json 主类**全部**是加载器类
+  （KnotClient / BootstrapLauncher / ForgeBootstrap / modlauncher / launchwrapper），没有一个是原版 Main。
+- 教训写进 PROGRESS §3 与 VERIFY §2.1：**只看 `Setting user` 不足以判定启动成功**。
