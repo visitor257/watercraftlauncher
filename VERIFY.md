@@ -93,3 +93,26 @@ powershell -ExecutionPolicy Bypass -File scripts\verify-matrix.ps1 -Phase 3     
 powershell -ExecutionPolicy Bypass -File scripts\verify-matrix.ps1 -Only FORGE   # 只跑某加载器
 powershell -ExecutionPolicy Bypass -File scripts\verify-matrix.ps1 -Combo 1.20.1-FORGE-NONE -Force
 ```
+
+## 4. 界面级验证的正确姿势（2026-10-26 血的教训）
+
+screen=MAIN、chrome 已绘制 这类日志只能证明**代码被调用**，不能证明**画出来了**。
+这一轮就是这么被骗的：日志齐全，用户实机一看面板是透明的。
+
+真因是版本行为差异，必须 javap 看字节码，不能按「一般都会调」想当然：
+
+| 版本 | Screen.render 会自动调 enderBackground？ |
+|---|---|
+| 1.21.1 / 1.21.4 | 会 |
+| 1.20.1 / 1.19.4 | **不会**（只遍历 drawables） |
+
+所以跨版本的 drawChrome 不能挂在 enderBackground 上，要在 ender 里手动按
+「原版底 → 面板 → 控件 → 页内容」的顺序调。
+
+**可靠判据**（本期定下的口径）：
+1. 真实窗口抓图 —— PrintWindow(hwnd, dc, 2)，跑够 30 秒再抓，然后数特征像素
+   （面板色 #C6C6C6）；三个版本命中数应该同量级（≈15000/4px 采样）。
+2. 无头环境里用 ScreenshotRecorder 必须等首帧内容渲染完（atlas 建完要 2~3 秒），
+   否则抓到的是启动画面 —— 这一条骗了我两轮。
+3. 探针 waitFor 拿「抓图完成」当标记（shot saved），别拿 screen=MAIN，
+   否则进程会在抓图前被 kill。

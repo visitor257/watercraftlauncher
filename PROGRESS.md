@@ -184,6 +184,8 @@ OptiFine 用错 Java），另外修掉 **3 个会造出假验证结果的工具�
 验证（`testgame/versions/V1.19.4-FABRIC` + Fabric API 0.87.2）：
 - `Loading Minecraft 1.19.4 with Fabric Loader 0.20.1`、`- mcver 1.0.0`、`物品已注册`、`客户端初始化完成`；
 - `screen=MAIN` → `chrome 已绘制` → `首帧渲染完成`，切 6 个页都正常，**无异常堆栈**；
-- **像素级确认没拿到**：这台机器上 1.19.4 / 1.20.1 无头起游戏都停在启动画面后（截出来是 1.19.4 那块红橙色 splash），
-  同一套钩子跑 1.21.4 能截到面板（`C6C6C6` 6 万+像素）—— 所以是环境限制，不是代码。界面最终确认留给实机。
+- **像素级确认（已补）**：当时先误判成「环境限制」，但用户实机一看就发现**面板是透明的**。
+  真因：`Screen.render` **只在 1.21.1+ 才会自己调 `renderBackground`**，1.20.1 / 1.19.4 只遍历 drawables，
+  而 `drawChrome` 当时写在 `renderBackground` 里 → 面板一次都没画。已在两个 compat 的 `render` 里手动调，
+  并用真实窗口 PrintWindow 抓图确认：1.19.4 / 1.20.1 / 1.21.4 中心点都是 `C6C6C6`，命中≈15000 采样（一致）。
 - 产物：`dist/watercraftlauncher-fabric-1.0.0-mc1.19.4.jar`（class 版本 61），**四个 target 全绿**（1.19.4 / 1.20.1 / 1.21.1 / 1.21.4）。
