@@ -15,10 +15,48 @@ import java.util.List;
  */
 public final class Sources {
 
-    public record Src(String name, String root) {
+    public static final class Src {
+
+        // —— 原来是 record，为了 Java 8 兼容改写成普通类；字段名/方法名跟 record 一致，
+        //    所以 found.exe 和 found.exe() 两种写法都还能用。
+        public final String name;
+        public final String root;
+
+        public Src(String name, String root) {
+            this.name = name;
+            this.root = root;
+        }
+
+        public String name() { return name; }
+        public String root() { return root; }
+
+        @Override
+        public boolean equals(Object o) {
+            if (this == o) return true;
+            if (!(o instanceof Src)) return false;
+            Src that = (Src) o;
+            return true
+                && java.util.Objects.equals(name, that.name)
+                && java.util.Objects.equals(root, that.root);
+        }
+
+        @Override
+        public int hashCode() {
+            return java.util.Objects.hash(
+                java.util.Objects.hashCode(name),
+                java.util.Objects.hashCode(root));
+        }
+
+        @Override
+        public String toString() {
+            return "Src[" + "name=" + name + ", " + "root=" + root + "]";
+        }
+
+        // —— 以下为原 record 里的自定义方法
+
 
         public boolean official() {
-            return root == null || root.isBlank();
+            return root == null || root.trim().isEmpty();
         }
 
         public String rootClean() {
@@ -121,7 +159,7 @@ public final class Sources {
     }
 
     static Src decode(String raw) {
-        if (raw == null || raw.isBlank()) return null;
+        if (raw == null || raw.trim().isEmpty()) return null;
         int i = raw.indexOf('=');
         if (i <= 0 || i == raw.length() - 1) return null;
         return new Src(raw.substring(0, i).trim(), raw.substring(i + 1).trim());

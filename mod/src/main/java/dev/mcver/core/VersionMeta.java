@@ -22,7 +22,7 @@ public final class VersionMeta {
 
     /** 名字里不能出现的字符。 */
     public static boolean validName(String name) {
-        if (name == null || name.isBlank() || name.length() > 64) return false;
+        if (name == null || name.trim().isEmpty() || name.length() > 64) return false;
         return name.matches("[A-Za-z0-9._\\-+() \\u4e00-\\u9fa5]{1,64}");
     }
 
@@ -44,10 +44,10 @@ public final class VersionMeta {
             Path oldJson = dst.resolve(from + ".json");
             Path newJson = dst.resolve(to + ".json");
             if (Files.isRegularFile(oldJson)) {
-                String text = Files.readString(oldJson, StandardCharsets.UTF_8);
+                String text = dev.mcver.core.Jdk.readString(oldJson, StandardCharsets.UTF_8);
                 text = text.replaceFirst("(\"id\"\\s*:\\s*\")" + java.util.regex.Pattern.quote(from) + "(\")",
                         "$1" + to.replace("\\", "\\\\").replace("$", "\\$") + "$2");
-                Files.writeString(newJson, text, StandardCharsets.UTF_8);
+                dev.mcver.core.Jdk.writeString(newJson, text, StandardCharsets.UTF_8);
                 if (!oldJson.equals(newJson)) Files.deleteIfExists(oldJson);
             }
             // 版本隔离目录里的引用不用管；日志目录留着无害

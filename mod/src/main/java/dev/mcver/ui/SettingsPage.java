@@ -24,7 +24,7 @@ public class SettingsPage extends Page {
     private boolean fullscreen;
     private boolean isolation;
 
-    private List<Sources.Src> sources = List.of();
+    private List<Sources.Src> sources = dev.mcver.core.Jdk.emptyList();
     private int srcScroll;
     private boolean srcHookTried;
 
@@ -203,7 +203,7 @@ public class SettingsPage extends Page {
 
     private static String envSrc(String k) {
         String v = System.getenv(k);
-        return v == null || v.isBlank() ? null : v.trim();
+        return v == null || v.trim().isEmpty() ? null : v.trim();
     }
 
     private void save() {
@@ -235,7 +235,7 @@ public class SettingsPage extends Page {
 
     private void initSources() {
         sources = new ArrayList<>(Sources.all());
-        McVerMod.LOGGER.info("mcver: 下载源 {} 当前={}", sources.stream().map(Sources.Src::label).toList(),
+        McVerMod.LOGGER.info("mcver: 下载源 {} 当前={}", sources.stream().map(Sources.Src::label).collect(java.util.stream.Collectors.toList()),
                 Sources.active().label());
         int x = host.contentX();
         int w = host.contentW();
@@ -382,7 +382,7 @@ public class SettingsPage extends Page {
 
     private static String javaSummary() {
         String raw = Config.javaPath;
-        if (raw == null || raw.isBlank()) return "自动（按版本要求挑）";
+        if (raw == null || raw.trim().isEmpty()) return "自动（按版本要求挑）";
         java.nio.file.Path p = dev.mcver.core.JavaFinder.resolveExe(raw);
         if (p == null) return "指定的路径无效，已按自动处理";
         return "Java " + dev.mcver.core.JavaFinder.majorOfExe(p) + "  " + p;

@@ -63,7 +63,7 @@ public class MainScreen extends ChromeScreen {
     /** 上次用的目录还在，就接着用它，否则用跑着的这个实例的目录。 */
     private static void restoreDir() {
         String last = Config.lastDir;
-        if (last != null && !last.isBlank()) {
+        if (last != null && !last.trim().isEmpty()) {
             try {
                 Path p = Paths.get(last).toAbsolutePath().normalize();
                 if (Files.isDirectory(p)) {
@@ -80,7 +80,7 @@ public class MainScreen extends ChromeScreen {
 
     private static String env(String k) {
         String v = System.getenv(k);
-        return v == null || v.isBlank() ? null : v.trim();
+        return v == null || v.trim().isEmpty() ? null : v.trim();
     }
 
     public int activeIndex() { return active; }
@@ -217,7 +217,7 @@ public class MainScreen extends ChromeScreen {
             ctx.fill(ix - 22, iy - 2, ix - 2, iy + 18, 0xFF00FF00); // 定标：绿块在图标左边，不遮挡
             ctx.drawItem(st, ix - 80, iy);
             ctx.drawItem(new ItemStack(net.minecraft.item.Items.PAPER), ix - 40, iy);
-            var sid = dev.mcver.core.Compat.itemId(st.getItem());
+            Object sid = dev.mcver.core.Compat.itemId(st.getItem());
             dev.mcver.McVerMod.LOGGER.info("mcver: 图标自检 item={} stack={} paper=", sid, st);
         }
     }
@@ -243,7 +243,7 @@ public class MainScreen extends ChromeScreen {
 
         drawText(ctx, title, tx, y + 6, C_TEXT);
 
-        var acc = Config.account();
+        dev.mcver.core.Account acc = Config.account();
         String who = acc != null ? acc.name + (acc.isMsa() ? " (正版)" : " (离线)")
                 : MinecraftClient.getInstance().getSession().getUsername();
         who = trim(who, 96);
@@ -254,7 +254,7 @@ public class MainScreen extends ChromeScreen {
         drawText(ctx, trim(dir, 170), tx, y + 17, C_FAINT);
 
         String bg = Jobs.brief();
-        if (!bg.isBlank()) {
+        if (!bg.trim().isEmpty()) {
             int color = Jobs.running() ? C_WARN : (bg.startsWith("失败") ? C_ERR : C_OK);
             rightAlignedText(ctx, trim(bg, 130), x + w - PAD - 16, y + 17, color);
         }
@@ -296,9 +296,7 @@ public class MainScreen extends ChromeScreen {
             String line = String.format("%s screen=MAIN tab=%s gui=%dx%d panel=%dx%d@%d,%d children=%d%n",
                     java.time.LocalTime.now().withNano(0), pages.get(active).nav(),
                     this.width, this.height, pw(), ph(), px(), py(), this.children().size());
-            Files.writeString(Paths.get("mcver-debug.txt").toAbsolutePath(), line,
-                    StandardCharsets.UTF_8,
-                    StandardOpenOption.CREATE, StandardOpenOption.APPEND);
+            dev.mcver.core.Jdk.writeAppend(Paths.get("mcver-debug.txt").toAbsolutePath(), line);
             // 同时进游戏日志：无头验证（ProbeLaunch 的 waitFor=screen=MAIN）只看得到日志
             dev.mcver.McVerMod.LOGGER.info("mcver: {}", line.trim());
         } catch (Exception ignored) { }

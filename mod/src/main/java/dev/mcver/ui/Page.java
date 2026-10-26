@@ -69,7 +69,7 @@ public abstract class Page {
 
     protected static String env(String key) {
         String v = System.getenv(key);
-        return v == null || v.isBlank() ? null : v.trim();
+        return v == null || v.trim().isEmpty() ? null : v.trim();
     }
 
     protected static MinecraftClient minecraft() {

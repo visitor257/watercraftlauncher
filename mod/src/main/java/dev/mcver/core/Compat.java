@@ -26,16 +26,31 @@ public final class Compat {
         return Registries.ITEM.getId(item);
     }
 
-    /** 会话里的玩家 uuid，去掉横线的那种；拿不到就 null。 */
+    /**
+     * 会话里的玩家 uuid，去掉横线的那种；拿不到就 null。
+     *
+     * <p>不写局部变量：Session 的包名跳版本改过（1.20.1 是 {@code client.util}，1.21 起是
+     * {@code client.session}），而主源码要在所有 target 上共用，Java 8 又没有 {@code var}。
+     * 用链式调用绕开具体类型。
+     */
     public static String sessionUuid() {
-        var session = MinecraftClient.getInstance().getSession();
-        var uuid = session.getUuidOrNull();
+        java.util.UUID uuid = MinecraftClient.getInstance().getSession().getUuidOrNull();
         return uuid == null ? null : uuid.toString().replace("-", "");
+    }
+
+    /** 会话里的玩家名（正版/离线都行）。同样绕开 Session 的具体类型。 */
+    public static String sessionName() {
+        return MinecraftClient.getInstance().getSession().getUsername();
+    }
+
+    /** 会话里的 access token。 */
+    public static String sessionToken() {
+        return MinecraftClient.getInstance().getSession().getAccessToken();
     }
 
     /** 存一张截图（自检用）。1.16.5 那边类名和参数都不一样，见 compat 那份。 */
     public static void saveScreenshot(String name) {
-        var mc = MinecraftClient.getInstance();
+        MinecraftClient mc = MinecraftClient.getInstance();
         net.minecraft.client.util.ScreenshotRecorder.saveScreenshot(
                 mc.runDirectory, name, mc.getFramebuffer(), t -> { });
     }

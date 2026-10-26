@@ -72,7 +72,7 @@ public final class Config {
         try {
             Path f = file();
             if (!Files.isRegularFile(f)) return;
-            Map<String, Object> m = Json.obj(Json.parse(Files.readString(f, StandardCharsets.UTF_8)));
+            Map<String, Object> m = Json.obj(Json.parse(dev.mcver.core.Jdk.readString(f, StandardCharsets.UTF_8)));
             memMb = clamp(Json.num(m, "memMb", memMb), 256, 65536);
             closeAfterLaunch = Json.bool(m, "closeAfterLaunch", closeAfterLaunch);
             jvmArgs = Json.str(m, "jvmArgs", jvmArgs);
@@ -104,7 +104,7 @@ public final class Config {
             for (Object o : Json.arr(m.get("accounts"))) {
                 if (o instanceof Map) {
                     Account a = Account.fromMap(Json.obj(o));
-                    if (!a.name.isBlank()) accounts.add(a);
+                    if (!a.name.trim().isEmpty()) accounts.add(a);
                 }
             }
             accountIndex = Json.num(m, "accountIndex", accounts.isEmpty() ? -1 : 0);
@@ -137,7 +137,7 @@ public final class Config {
             List<Object> list = new ArrayList<>();
             for (Account a : accounts) list.add(a.toMap());
             m.put("accounts", list);
-            Files.writeString(file(), Json.write(m), StandardCharsets.UTF_8);
+            dev.mcver.core.Jdk.writeString(file(), Json.write(m), StandardCharsets.UTF_8);
         } catch (Exception e) {
             System.err.println("[mcver] 写配置失败: " + e);
         }
@@ -169,7 +169,7 @@ public final class Config {
     /** 按空格切参数，支持 "双引号" 包住的整段。 */
     public static List<String> splitArgs(String raw) {
         List<String> out = new ArrayList<>();
-        if (raw == null || raw.isBlank()) return out;
+        if (raw == null || raw.trim().isEmpty()) return out;
         StringBuilder cur = new StringBuilder();
         boolean quote = false;
         for (int k = 0; k < raw.length(); k++) {

@@ -35,7 +35,7 @@ public final class Dirs {
         for (String s : Config.dirs) {
             try { addIfExists(out, Paths.get(s)); } catch (Exception ignored) { }
         }
-        if (Config.lastDir != null && !Config.lastDir.isBlank()) {
+        if (Config.lastDir != null && !Config.lastDir.trim().isEmpty()) {
             try { addIfExists(out, Paths.get(Config.lastDir)); } catch (Exception ignored) { }
         }
         out.addAll(found);
@@ -60,7 +60,7 @@ public final class Dirs {
             Path q = alsoKeep.toAbsolutePath().normalize();
             if (!q.equals(n) && Files.isDirectory(q)) prev = q;
         }
-        if (prev == null && Config.lastDir != null && !Config.lastDir.isBlank()) {
+        if (prev == null && Config.lastDir != null && !Config.lastDir.trim().isEmpty()) {
             try {
                 Path q = Paths.get(Config.lastDir).toAbsolutePath().normalize();
                 if (!q.equals(n) && Files.isDirectory(q)) prev = q;
@@ -91,7 +91,7 @@ public final class Dirs {
         }
         rewriteHistory(history().stream()
                 .filter(x -> !x.toAbsolutePath().normalize().equals(p.toAbsolutePath().normalize()))
-                .toList());
+                .collect(java.util.stream.Collectors.toList()));
         Config.save();
     }
 
@@ -195,7 +195,7 @@ public final class Dirs {
             return budget - 1;
         }
 
-        try (var ds = Files.newDirectoryStream(dir)) {
+        try (java.nio.file.DirectoryStream<java.nio.file.Path> ds = Files.newDirectoryStream(dir)) {
             for (Path child : ds) {
                 if (budget <= 0) break;
                 budget--;
@@ -232,7 +232,7 @@ public final class Dirs {
         if (!Files.isRegularFile(f)) return out;
         try {
             for (String line : Files.readAllLines(f, StandardCharsets.UTF_8)) {
-                if (!line.isBlank()) out.add(Paths.get(line.trim()));
+                if (!line.trim().isEmpty()) out.add(Paths.get(line.trim()));
             }
         } catch (IOException ignored) { }
         return out;
@@ -252,7 +252,7 @@ public final class Dirs {
         for (Path p : list) sb.append(p).append('\n');
         try {
             Files.createDirectories(f.getParent());
-            Files.writeString(f, sb.toString(), StandardCharsets.UTF_8);
+            dev.mcver.core.Jdk.writeString(f, sb.toString(), StandardCharsets.UTF_8);
         } catch (IOException ignored) { }
     }
 

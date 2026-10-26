@@ -19,9 +19,6 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.net.URI;
-import java.net.http.HttpClient;
-import java.net.http.HttpRequest;
-import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -64,23 +61,21 @@ public final class Installer {
 
     private static String detectArch() {
         String a = System.getProperty("os.arch", "").toLowerCase(Locale.ROOT);
-        return switch (a) {
-            case "amd64", "x86_64", "x86-64" -> "x86_64";
-            case "x86", "i386", "i486", "i586", "i686" -> "x86";
-            case "aarch64", "arm64" -> "arm64";
-            default -> a;
-        };
+        // Java 8 没有 switch 表达式，一律用 if 链
+        if ("amd64".equals(a) || "x86_64".equals(a) || "x86-64".equals(a)) return "x86_64";
+        if ("x86".equals(a) || "i386".equals(a) || "i486".equals(a)
+                || "i586".equals(a) || "i686".equals(a)) return "x86";
+        if ("aarch64".equals(a) || "arm64".equals(a)) return "arm64";
+        return a;
     }
 
     /** json 里的 os.arch 和当前架构对不对得上。认不出来的 arch 一律放行。 */
     static boolean archMatches(String want) {
         String w = want.toLowerCase(Locale.ROOT);
-        return switch (w) {
-            case "x86", "i386", "i686" -> "x86".equals(OS_ARCH);
-            case "x86_64", "amd64" -> "x86_64".equals(OS_ARCH);
-            case "arm64", "aarch64" -> "arm64".equals(OS_ARCH);
-            default -> true;
-        };
+        if ("x86".equals(w) || "i386".equals(w) || "i686".equals(w)) return "x86".equals(OS_ARCH);
+        if ("x86_64".equals(w) || "amd64".equals(w)) return "x86_64".equals(OS_ARCH);
+        if ("arm64".equals(w) || "aarch64".equals(w)) return "arm64".equals(OS_ARCH);
+        return true;
     }
 
     // ---------------------------------------------------------------- 结果
@@ -117,15 +112,15 @@ public final class Installer {
 
         for (int i = 0; i < args.length; i++) {
             switch (args[i]) {
-                case "--mirror" -> src = Sources.BMCLAPI;
-                case "--no-assets" -> assets = false;
-                case "--plan" -> plan = true;
-                case "--print-cmd" -> printCmd = true;
-                case "--jobs" -> jobs = Integer.parseInt(args[++i]);
-                default -> {
+                case "--mirror": src = Sources.BMCLAPI; break;
+                case "--no-assets": assets = false; break;
+                case "--plan": plan = true; break;
+                case "--print-cmd": printCmd = true; break;
+                case "--jobs": jobs = Integer.parseInt(args[++i]); break;
+                default:
                     if (version == null) version = args[i];
                     else gameDir = Paths.get(args[i]);
-                }
+                    break;
             }
         }
         if (version == null) {
@@ -167,15 +162,10 @@ public final class Installer {
     public static Installed install(Path gameDir, String versionId, Sources.Src src,
                                     boolean withAssets, boolean planOnly, int jobs,
                                     Progress p) throws Exception {
-        HttpClient http = HttpClient.newBuilder()
-                .followRedirects(HttpClient.Redirect.NORMAL)
-                .connectTimeout(Duration.ofSeconds(20))
-                .build();
-
         // 1) 版本清单
         p.on("manifest", 0, 0, "获取版本清单 (" + src + ")");
         String manifestUrl = src == null ? MANIFEST_OFFICIAL : src.manifestUrl();
-        Map<String, Object> manifest = Json.obj(Json.parse(getString(http, manifestUrl)));
+        Map<String, Object> manifest = Json.obj(Json.parse(getString(manifestUrl)));
         Map<String, Object> entry = null;
         for (Object o : Json.arrOrEmpty(manifest.get("versions"))) {
             Map<String, Object> v = Json.obj(o);
@@ -186,7 +176,7 @@ public final class Installer {
         // 2) 版本 json
         p.on("version", 0, 0, "下载 " + versionId + ".json");
         String vUrl = rewrite(Json.str(entry.get("url")), src);
-        String vJson = getString(http, vUrl);
+        String vJson = getString(vUrl);
         Map<String, Object> vj = Json.obj(Json.parse(vJson));
 
         Path verDir = gameDir.resolve("versions").resolve(versionId);
@@ -195,7 +185,7 @@ public final class Installer {
         // 新装 / 之前就没装完的：先摆标记，全跑完才摘。
         // 已经在用的完整版本重装（补全）时不摆，免得失败把好版本藏了。
         if (!wasComplete) Launcher.markIncomplete(verDir);
-        Files.writeString(verDir.resolve(versionId + ".json"), vJson, StandardCharsets.UTF_8);
+        dev.mcver.core.Jdk.writeString(verDir.resolve(versionId + ".json"), vJson, StandardCharsets.UTF_8);
 
         Installed r = new Installed();
         r.gameDir = gameDir;
@@ -292,7 +282,7 @@ public final class Installer {
             for (Download d : tasks) bytes += Math.max(0, d.size);
             p.on("plan", 0, 0, String.format("待下载 %d 个文件, 约 %.1f MB",
                     tasks.size(), bytes / 1048576.0));
-            r.classpath.addAll(cp.stream().map(Path::of).toList());
+            r.classpath.addAll(cp.stream().map(Paths::get).collect(java.util.stream.Collectors.toList()));
             if (r.clientJar != null) r.classpath.add(r.clientJar);
             buildArgs(r, "Player", "00000000-0000-0000-0000-000000000000", "0", gameDir);
             return r;
@@ -302,7 +292,7 @@ public final class Installer {
         Path tmp = gameDir.resolve(".mcver-tmp");
         Files.createDirectories(tmp);
         Files.createDirectories(r.nativesDir);
-        downloadAll(http, tasks, jobs, p, "files", tmp);
+        downloadAll(tasks, jobs, p, "files", tmp);
 
         // 7) 解压 natives
         for (Download d : tasks) {
@@ -311,11 +301,11 @@ public final class Installer {
 
         // 8) assets objects
         if (withAssets && r.assetIndexId != null) {
-            downloadAssets(http, gameDir, r, src, jobs, p, tmp);
+            downloadAssets(gameDir, r, src, jobs, p, tmp);
         }
 
         // 9) classpath
-        r.classpath.addAll(cp.stream().map(Path::of).toList());
+        r.classpath.addAll(cp.stream().map(Paths::get).collect(java.util.stream.Collectors.toList()));
         if (r.clientJar != null) r.classpath.add(r.clientJar);
 
         buildArgs(r, "Player", "00000000-0000-0000-0000-000000000000", "0", gameDir);
@@ -363,20 +353,20 @@ public final class Installer {
         Map<String, Object> args = Json.objOrNull(vj.get("arguments"));
         if (args != null) {
             for (Object o : Json.arrOrEmpty(args.get("jvm"))) {
-                if (o instanceof String s) {
-                    r.jvmArgs.add(sub(s, ph));
-                } else if (o instanceof Map<?, ?> m) {
-                    Map<String, Object> rule = Json.obj(m);
+                if (o instanceof String) {
+                    r.jvmArgs.add(sub((String) o, ph));
+                } else if (o instanceof Map<?, ?>) {
+                    Map<String, Object> rule = Json.obj(o);
                     if (rulesAllow(Json.arrOrNull(rule.get("rules")), noFeatures()))
                         for (Object v : Json.arrOrEmpty(rule.get("value")))
                             r.jvmArgs.add(sub(Json.str(v), ph));
                 }
             }
             for (Object o : Json.arrOrEmpty(args.get("game"))) {
-                if (o instanceof String s) {
-                    r.gameArgs.add(sub(s, ph));
-                } else if (o instanceof Map<?, ?> m) {
-                    Map<String, Object> rule = Json.obj(m);
+                if (o instanceof String) {
+                    r.gameArgs.add(sub((String) o, ph));
+                } else if (o instanceof Map<?, ?>) {
+                    Map<String, Object> rule = Json.obj(o);
                     if (rulesAllow(Json.arrOrNull(rule.get("rules")), noFeatures()))
                         for (Object v : Json.arrOrEmpty(rule.get("value")))
                             r.gameArgs.add(sub(Json.str(v), ph));
@@ -388,7 +378,7 @@ public final class Installer {
             r.jvmArgs.add("-cp");
             r.jvmArgs.add(joinCp(r.classpath));
             for (String s : Json.str(vj.get("minecraftArguments")).split(" "))
-                if (!s.isBlank()) r.gameArgs.add(sub(s, ph));
+                if (!s.trim().isEmpty()) r.gameArgs.add(sub(s, ph));
         }
 
         if (r.mainClass == null) r.mainClass = "net.minecraft.client.main.Main";
@@ -406,8 +396,8 @@ public final class Installer {
     static final java.util.regex.Pattern PH = java.util.regex.Pattern.compile("\\$\\{([^}]+)}");
 
     static String sub(String s, Map<String, String> ph) {
-        var m = PH.matcher(s);
-        StringBuilder sb = new StringBuilder();
+        java.util.regex.Matcher m = PH.matcher(s);
+        StringBuffer sb = new StringBuffer();
         while (m.find()) {
             String v = ph.get(m.group(1));
             m.appendReplacement(sb, java.util.regex.Matcher.quoteReplacement(v == null ? "" : v));
@@ -471,7 +461,7 @@ public final class Installer {
         }
     }
 
-    static void downloadAll(HttpClient http, List<Download> tasks, int jobs,
+    static void downloadAll(List<Download> tasks, int jobs,
                             Progress p, String stage, Path tmp) throws Exception {
         long totalBytes = 0;
         for (Download d : tasks) totalBytes += Math.max(0, d.size);
@@ -498,7 +488,7 @@ public final class Installer {
                 fs.add(pool.submit(() -> {
                     try {
                         if (needsDownload(d)) {
-                            fetchTo(http, d.url, d.path, d.sha1, tmp);
+                            fetchTo(d.url, d.path, d.sha1, tmp);
                         }
                         doneBytes.addAndGet(Math.max(0, d.size));
                         long n = counter.incrementAndGet();
@@ -526,11 +516,11 @@ public final class Installer {
         p.on(stage, tasks.size(), tasks.size(), String.format("%.0f MB", total / 1048576.0));
     }
 
-    static void downloadAssets(HttpClient http, Path gameDir, Installed r, Sources.Src src,
+    static void downloadAssets(Path gameDir, Installed r, Sources.Src src,
                                int jobs, Progress p, Path tmp) throws Exception {
         Path idx = gameDir.resolve("assets").resolve("indexes").resolve(r.assetIndexId + ".json");
         if (!Files.exists(idx)) return;
-        Map<String, Object> index = Json.obj(Json.parse(Files.readString(idx)));
+        Map<String, Object> index = Json.obj(Json.parse(dev.mcver.core.Jdk.readString(idx)));
         Map<String, Object> objects = Json.objOrNull(index.get("objects"));
         if (objects == null) return;
 
@@ -551,7 +541,7 @@ public final class Installer {
             if (virtual || mapToRes) legacy.add(new String[]{hash, e.getKey()});
         }
         p.on("assets", 0, tasks.size(), "共 " + tasks.size() + " 个对象");
-        downloadAll(http, tasks, jobs, p, "assets", tmp);
+        downloadAll(tasks, jobs, p, "assets", tmp);
 
         if (virtual) copyLegacy(gameDir, r.assetIndexId, legacy,
                 gameDir.resolve("assets").resolve("virtual").resolve(r.assetIndexId));
@@ -582,21 +572,14 @@ public final class Installer {
         }
     }
 
-    static void fetchTo(HttpClient http, String url, Path dst, String sha1, Path tmp)
+    static void fetchTo(String url, Path dst, String sha1, Path tmp)
             throws Exception {
         Files.createDirectories(dst.getParent());
         Path part = Files.createTempFile(tmp, "dl", ".part");
         Exception last = null;
         for (int attempt = 0; attempt < 3; attempt++) {
             try {
-                HttpRequest req = HttpRequest.newBuilder(URI.create(url))
-                        .timeout(Duration.ofMinutes(5)).GET().build();
-                HttpResponse<InputStream> resp = http.send(req, HttpResponse.BodyHandlers.ofInputStream());
-                if (resp.statusCode() / 100 != 2)
-                    throw new IOException("HTTP " + resp.statusCode() + " " + url);
-                try (InputStream in = resp.body(); OutputStream out = Files.newOutputStream(part)) {
-                    in.transferTo(out);
-                }
+                Net.download(url, part, 20_000, 300_000);
                 if (sha1 != null && !sha1.isEmpty() && !sha1(part).equalsIgnoreCase(sha1))
                     throw new IOException("sha1 不匹配 " + url);
                 Files.move(part, dst, StandardCopyOption.REPLACE_EXISTING);
@@ -610,15 +593,11 @@ public final class Installer {
         throw last == null ? new IOException(url) : last;
     }
 
-    static String getString(HttpClient http, String url) throws Exception {
+    static String getString(String url) throws Exception {
         Exception last = null;
         for (int attempt = 0; attempt < 3; attempt++) {
             try {
-                HttpRequest req = HttpRequest.newBuilder(URI.create(url))
-                        .timeout(Duration.ofSeconds(60)).GET().build();
-                HttpResponse<String> resp = http.send(req, HttpResponse.BodyHandlers.ofString());
-                if (resp.statusCode() / 100 != 2) throw new IOException("HTTP " + resp.statusCode());
-                return resp.body();
+                return Net.get(url, 15_000, 60_000);
             } catch (Exception e) {
                 last = e;
                 Thread.sleep(600L * (attempt + 1));
@@ -698,13 +677,13 @@ public final class Installer {
 
         static List<Object> arrOrNull(Object o) { return o instanceof List ? arr(o) : null; }
 
-        static List<Object> arrOrEmpty(Object o) { return o instanceof List ? arr(o) : List.of(); }
+        static List<Object> arrOrEmpty(Object o) { return o instanceof List ? arr(o) : dev.mcver.core.Jdk.emptyList(); }
 
         static String str(Object o) { return o == null ? null : String.valueOf(o); }
 
         static double num(Object o) {
             if (o == null) return 0;
-            if (o instanceof Number n) return n.doubleValue();
+            if (o instanceof Number) return ((Number) o).doubleValue();
             return Double.parseDouble(String.valueOf(o));
         }
 
@@ -765,16 +744,16 @@ public final class Installer {
                 if (c == '\\') {
                     char e = s.charAt(i++);
                     switch (e) {
-                        case 'n' -> sb.append('\n');
-                        case 't' -> sb.append('\t');
-                        case 'r' -> sb.append('\r');
-                        case 'b' -> sb.append('\b');
-                        case 'f' -> sb.append('\f');
-                        case 'u' -> {
+                        case 'n': sb.append('\n'); break;
+                        case 't': sb.append('\t'); break;
+                        case 'r': sb.append('\r'); break;
+                        case 'b': sb.append('\b'); break;
+                        case 'f': sb.append('\f'); break;
+                        case 'u':
                             sb.append((char) Integer.parseInt(s.substring(i, i + 4), 16));
                             i += 4;
-                        }
-                        default -> sb.append(e);
+                            break;
+                        default: sb.append(e);
                     }
                 } else sb.append(c);
             }

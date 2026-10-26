@@ -42,7 +42,7 @@ public final class Launcher {
         public List<String> jvm = new ArrayList<>();
         public List<String> game = new ArrayList<>();
         public List<String> warnings = new ArrayList<>();
-        public Map<String, Object> json = Map.of();
+        public Map<String, Object> json = dev.mcver.core.Jdk.emptyMap();
 
         public int assetMissing;
         public List<Path> missing = new ArrayList<>();
@@ -82,7 +82,7 @@ public final class Launcher {
         Path marker = verDir.resolve(HIDDEN);
         if (on) {
             Files.createDirectories(verDir);
-            Files.writeString(marker, java.time.Instant.now().toString() + System.lineSeparator(),
+            dev.mcver.core.Jdk.writeString(marker, java.time.Instant.now().toString() + System.lineSeparator(),
                     StandardCharsets.UTF_8);
         } else {
             Files.deleteIfExists(marker);
@@ -104,7 +104,7 @@ public final class Launcher {
             for (String sub : new String[]{"mods", "saves", "resourcepacks", "shaderpacks", "config", "logs"}) {
                 Files.createDirectories(verDir.resolve(sub));
             }
-            Files.writeString(marker, java.time.Instant.now().toString() + System.lineSeparator(),
+            dev.mcver.core.Jdk.writeString(marker, java.time.Instant.now().toString() + System.lineSeparator(),
                     StandardCharsets.UTF_8);
         } else {
             Files.deleteIfExists(marker);
@@ -170,7 +170,7 @@ public final class Launcher {
         flat.remove("inheritsFrom");
 
         Files.createDirectories(loaderDir);
-        Files.writeString(loaderDir.resolve(loaderId + ".json"), Json.write(flat), StandardCharsets.UTF_8);
+        dev.mcver.core.Jdk.writeString(loaderDir.resolve(loaderId + ".json"), Json.write(flat), StandardCharsets.UTF_8);
 
         Path srcJar = vanillaDir.resolve(vanillaId + ".jar");
         if (Files.isRegularFile(srcJar)) {
@@ -197,8 +197,8 @@ public final class Launcher {
 
     static void deleteTree(Path root) throws IOException {
         if (!Files.exists(root)) return;
-        try (var s = Files.walk(root)) {
-            for (Path p : s.sorted(java.util.Comparator.reverseOrder()).toList()) {
+        try (java.util.stream.Stream<java.nio.file.Path> s = Files.walk(root)) {
+            for (Path p : s.sorted(java.util.Comparator.reverseOrder()).collect(java.util.stream.Collectors.toList())) {
                 Files.deleteIfExists(p);
             }
         }
@@ -209,7 +209,7 @@ public final class Launcher {
         List<String> out = new ArrayList<>();
         Path versions = gameDir.resolve("versions");
         if (!Files.isDirectory(versions)) return out;
-        try (var s = Files.list(versions)) {
+        try (java.util.stream.Stream<java.nio.file.Path> s = Files.list(versions)) {
             s.filter(Files::isDirectory).forEach(d -> {
                 String id = d.getFileName().toString();
                 if (Files.isRegularFile(d.resolve(id + ".json")) || hasAnyJson(d)) out.add(id);
@@ -264,7 +264,7 @@ public final class Launcher {
     public static void markIncomplete(Path verDir) {
         try {
             Files.createDirectories(verDir);
-            Files.writeString(verDir.resolve(INCOMPLETE),
+            dev.mcver.core.Jdk.writeString(verDir.resolve(INCOMPLETE),
                     java.time.Instant.now().toString() + System.lineSeparator(),
                     java.nio.charset.StandardCharsets.UTF_8);
         } catch (Exception ignored) { }
@@ -284,7 +284,7 @@ public final class Launcher {
      */
     private static String resolveJarId(Path gameDir, String versionId, Map<String, Object> merged) {
         String explicit = json_str(merged.get("jar"));
-        if (explicit != null && !explicit.isBlank()) return explicit;
+        if (explicit != null && !explicit.trim().isEmpty()) return explicit;
 
         Path verDir = gameDir.resolve("versions");
             if (Files.isRegularFile(verDir.resolve(versionId).resolve(versionId + ".jar"))) return versionId;
@@ -295,7 +295,7 @@ public final class Launcher {
             Map<String, Object> raw = readVersionJson(gameDir, cur);
             if (raw == null) break;
             String withJar = json_str(raw.get("jar"));
-            if (withJar != null && !withJar.isBlank()) cur = withJar;
+            if (withJar != null && !withJar.trim().isEmpty()) cur = withJar;
             if (Files.isRegularFile(verDir.resolve(cur).resolve(cur + ".jar"))) return cur;
             cur = json_str(raw.get("inheritsFrom"));
         }
@@ -306,7 +306,7 @@ public final class Launcher {
         Path f = gameDir.resolve("versions").resolve(id).resolve(id + ".json");
         if (!Files.isRegularFile(f)) return null;
         try {
-            return json_obj(Installer.Json.parse(Files.readString(f, java.nio.charset.StandardCharsets.UTF_8)));
+            return json_obj(Installer.Json.parse(dev.mcver.core.Jdk.readString(f, java.nio.charset.StandardCharsets.UTF_8)));
         } catch (Exception e) {
             return null;
         }
@@ -314,7 +314,7 @@ public final class Launcher {
 
     private static Path firstJar(Path dir) {
         if (!Files.isDirectory(dir)) return null;
-        try (var s = Files.list(dir)) {
+        try (java.util.stream.Stream<java.nio.file.Path> s = Files.list(dir)) {
             return s.filter(p -> p.getFileName().toString().toLowerCase(Locale.ROOT).endsWith(".jar"))
                     .findFirst().orElse(null);
         } catch (IOException e) {
@@ -323,7 +323,7 @@ public final class Launcher {
     }
 
     private static boolean hasAnyJson(Path dir) {
-        try (var s = Files.list(dir)) {
+        try (java.util.stream.Stream<java.nio.file.Path> s = Files.list(dir)) {
             return s.anyMatch(p -> p.getFileName().toString().toLowerCase(Locale.ROOT).endsWith(".json"));
         } catch (IOException e) {
             return false;
@@ -575,7 +575,7 @@ public final class Launcher {
         Path idx = gameDir.resolve("assets").resolve("indexes").resolve(indexId + ".json");
         if (!Files.isRegularFile(idx)) return -1;
         try {
-            Map<String, Object> index = json_obj(Installer.Json.parse(Files.readString(idx, StandardCharsets.UTF_8)));
+            Map<String, Object> index = json_obj(Installer.Json.parse(dev.mcver.core.Jdk.readString(idx, StandardCharsets.UTF_8)));
             Map<String, Object> objects = index == null ? null : json_obj(index.get("objects"));
             if (objects == null) return 0;
             Path root = gameDir.resolve("assets").resolve("objects");
@@ -597,20 +597,20 @@ public final class Launcher {
     }
 
     private static boolean isEmptyDir(Path dir) throws IOException {
-        try (var s = Files.list(dir)) { return s.findAny().isEmpty(); }
+        try (java.util.stream.Stream<java.nio.file.Path> s = Files.list(dir)) { return !s.findAny().isPresent(); }
     }
 
     private static List<String> strArgs(List<Object> list, Map<String, String> ph) {
         List<String> out = new ArrayList<>();
         for (Object o : list) {
-            if (o instanceof String s) {
-                out.add(Installer.sub(s, ph));
-            } else if (o instanceof Map<?, ?> raw) {
-                Map<String, Object> rule = json_obj(raw);
+            if (o instanceof String) {
+                out.add(Installer.sub((String) o, ph));
+            } else if (o instanceof Map<?, ?>) {
+                Map<String, Object> rule = json_obj((Map<?, ?>) o);
                 if (rule == null) continue;
                 if (!Installer.rulesAllow(json_arrOrNull(rule.get("rules")), Installer.noFeatures())) continue;
                 Object v = rule.get("value");
-                if (v instanceof String s) out.add(Installer.sub(s, ph));
+                if (v instanceof String) out.add(Installer.sub((String) v, ph));
                 else for (Object e : json_arr(v)) out.add(Installer.sub(json_str(e), ph));
             }
         }
@@ -685,7 +685,7 @@ public final class Launcher {
         Path dir = gameDir.resolve("versions").resolve(id);
         Path f = dir.resolve(id + ".json");
         if (!Files.isRegularFile(f) && Files.isDirectory(dir)) {
-            try (var s = Files.list(dir)) {
+            try (java.util.stream.Stream<java.nio.file.Path> s = Files.list(dir)) {
                 f = s.filter(x -> x.getFileName().toString().toLowerCase(Locale.ROOT).endsWith(".json"))
                         .findFirst().orElse(null);
             }
@@ -693,7 +693,7 @@ public final class Launcher {
         if (f == null || !Files.isRegularFile(f)) {
             throw new IOException("找不到版本 json: " + id);
         }
-        return json_obj(Installer.Json.parse(Files.readString(f, StandardCharsets.UTF_8)));
+        return json_obj(Installer.Json.parse(dev.mcver.core.Jdk.readString(f, StandardCharsets.UTF_8)));
     }
 
     // ================================================================ 启动
@@ -706,7 +706,7 @@ public final class Launcher {
      */
     public static Path pickJava(Plan p, List<String> notes) {
         String custom = Config.javaPath;
-        if (custom != null && !custom.isBlank()) {
+        if (custom != null && !custom.trim().isEmpty()) {
             Path cp = JavaFinder.resolveExe(custom);
             if (cp != null) {
                 int m = JavaFinder.majorOfExe(cp);
@@ -821,7 +821,7 @@ public final class Launcher {
                 int code = r.process.exitValue();
                 String tail = tail(logFile, 5);
                 throw new IOException("进程立刻退出了（代码 " + code + "）"
-                        + (tail.isBlank() ? "，日志里没输出" : "：" + tail)
+                        + (tail.trim().isEmpty() ? "，日志里没输出" : "：" + tail)
                         + "  日志: " + logFile);
             }
         } catch (InterruptedException ignored) {
@@ -872,7 +872,7 @@ public final class Launcher {
             }
             sb.append('"').append('\n');
         }
-        Files.writeString(file, sb.toString(), StandardCharsets.UTF_8);
+        dev.mcver.core.Jdk.writeString(file, sb.toString(), StandardCharsets.UTF_8);
     }
 
     private static boolean hasNativesInfo(Map<String, Object> lib) {
@@ -924,7 +924,7 @@ public final class Launcher {
 
     @SuppressWarnings("unchecked")
     private static List<Object> json_arr(Object o) {
-        return o instanceof List ? (List<Object>) o : List.of();
+        return o instanceof List ? (List<Object>) o : dev.mcver.core.Jdk.emptyList();
     }
 
     private static List<Object> json_arrOrNull(Object o) {
@@ -934,6 +934,6 @@ public final class Launcher {
     private static String json_str(Object o) { return o == null ? null : String.valueOf(o); }
 
     private static double json_num(Object o) {
-        return o instanceof Number n ? n.doubleValue() : Double.parseDouble(String.valueOf(o));
+        return o instanceof Number ? ((Number) o).doubleValue() : Double.parseDouble(String.valueOf(o));
     }
 }

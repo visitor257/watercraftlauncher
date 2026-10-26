@@ -18,7 +18,7 @@ import java.util.List;
  */
 public class JavaPage extends Page {
 
-    private List<JavaFinder.Found> list = List.of();
+    private List<JavaFinder.Found> list = dev.mcver.core.Jdk.emptyList();
     private int page;
     private TextFieldWidget addField;
     private String status = "";
@@ -90,7 +90,7 @@ public class JavaPage extends Page {
             boolean custom = isCustom(f.exe());
             int rowW = custom ? w - 16 : w;
             String label = (on ? "▶ " : "   ") + "Java " + f.major()
-                    + (f.arch() == null || f.arch().isBlank() ? "" : " " + f.arch())
+                    + (f.arch() == null || f.arch().trim().isEmpty() ? "" : " " + f.arch())
                     + "   " + javaHomeName(f.exe()) + "   " + f.exe();
             add(Btn.builder(Txt.of(trim(label, rowW - 8)), b -> {
                 Config.javaPath = f.exe().toString();
@@ -132,7 +132,7 @@ public class JavaPage extends Page {
     }
 
     private Path selected() {
-        if (Config.javaPath == null || Config.javaPath.isBlank()) return null;
+        if (Config.javaPath == null || Config.javaPath.trim().isEmpty()) return null;
         Path p = JavaFinder.resolveExe(Config.javaPath);
         return p == null ? null : p.toAbsolutePath().normalize();
     }

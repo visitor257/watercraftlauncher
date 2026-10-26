@@ -52,7 +52,7 @@ public final class InstallJob {
         this.shader = shader == null ? LoaderInstaller.Shader.NONE : shader;
         this.shaderVersion = shaderVersion;
         this.isolation = isolation;
-        this.targetName = (targetName == null || targetName.isBlank()) ? null : targetName.trim();
+        this.targetName = (targetName == null || targetName.trim().isEmpty()) ? null : targetName.trim();
     }
 
     public synchronized List<String> logSnapshot(int max) {
@@ -67,11 +67,8 @@ public final class InstallJob {
         // 同时写文件：界面关掉时还能从外面看进度
         try {
             Path f = gameDir.resolve("mcver-install.log");
-            Files.writeString(f,
-                    "[" + java.time.LocalTime.now().withNano(0) + "] " + line + System.lineSeparator(),
-                    java.nio.charset.StandardCharsets.UTF_8,
-                    java.nio.file.StandardOpenOption.CREATE,
-                    java.nio.file.StandardOpenOption.APPEND);
+            dev.mcver.core.Jdk.writeAppend(f,
+                    "[" + java.time.LocalTime.now().withNano(0) + "] " + line + System.lineSeparator());
         } catch (Exception ignored) { }
     }
 
@@ -275,7 +272,7 @@ public final class InstallJob {
 
     /** 进度条类的刷新只按 10% 记一条，且不用那些没营养的 “123 MB”。 */
     private void noteProgress(String st, long d, long t, String msg) {
-        if (msg == null || msg.isBlank()) return;
+        if (msg == null || msg.trim().isEmpty()) return;
         if (t <= 0) { log(msg); return; }                     // 非进度型消息：原样记
         int pct = (int) Math.min(100, d * 100 / Math.max(1, t));
         boolean newStage = !st.equals(lastLogStage);
@@ -294,19 +291,20 @@ public final class InstallJob {
     }
 
     private static String stageName(String st) {
-        return switch (st == null ? "" : st) {
-            case "manifest" -> "获取版本清单";
-            case "version" -> "下载版本元数据";
-            case "plan" -> "解析依赖";
-            case "files" -> "下载 jar 与库";
-            case "assets" -> "下载资源文件";
-            case "loader" -> "安装加载器";
-            case "shader" -> "安装光影";
-            case "rename" -> "重命名版本";
-            case "isolation" -> "开启版本隔离";
-            case "done" -> "完成";
-            default -> st == null || st.isBlank() ? "准备中" : st;
-        };
+        String k = st == null ? "" : st;
+        switch (k) {
+            case "manifest": return "获取版本清单";
+            case "version": return "下载版本元数据";
+            case "plan": return "解析依赖";
+            case "files": return "下载 jar 与库";
+            case "assets": return "下载资源文件";
+            case "loader": return "安装加载器";
+            case "shader": return "安装光影";
+            case "rename": return "重命名版本";
+            case "isolation": return "开启版本隔离";
+            case "done": return "完成";
+            default: return k.trim().isEmpty() ? "准备中" : st;
+        }
     }
 
     private void checkCancel() {

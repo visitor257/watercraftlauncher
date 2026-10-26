@@ -37,8 +37,8 @@ public class DownloadPage extends Page {
     private View view = View.LIST;
 
     // ---------------- 列表
-    private List<VersionList.V> all = List.of();
-    private List<VersionList.V> shown = List.of();
+    private List<VersionList.V> all = dev.mcver.core.Jdk.emptyList();
+    private List<VersionList.V> shown = dev.mcver.core.Jdk.emptyList();
     private String query = "";
     private int page = 0;
     private boolean snapshots = false;
@@ -55,8 +55,8 @@ public class DownloadPage extends Page {
     private LoaderInstaller.Shader shader = LoaderInstaller.Shader.NONE;
     private boolean focusShader;
 
-    private List<LoaderVersions.Lv> modList = List.of();
-    private List<LoaderVersions.Lv> shaderList = List.of();
+    private List<LoaderVersions.Lv> modList = dev.mcver.core.Jdk.emptyList();
+    private List<LoaderVersions.Lv> shaderList = dev.mcver.core.Jdk.emptyList();
     private int modSel, shaderSel, modPage, shaderPage;
     private volatile boolean loadingComp;
     private volatile String compError;
@@ -126,9 +126,10 @@ public class DownloadPage extends Page {
             if (autoName != null) { name = autoName; nameEdited = true; }
         }
         switch (view) {
-            case LIST -> initList();
-            case DETAIL -> initDetail();
-            case PROGRESS -> initProgress();
+            case LIST: initList(); break;
+            case DETAIL: initDetail(); break;
+            case PROGRESS: initProgress(); break;
+            default: break;
         }
     }
 
@@ -194,13 +195,15 @@ public class DownloadPage extends Page {
 
     private String rowLabel(VersionList.V v, int maxW) {
         // 按用户要求：已经装过的版本不再打勾，列表保持干净（需要判断装没装看启动页/版本页）
-        String type = switch (v.type() == null ? "" : v.type()) {
-            case "release" -> "正式";
-            case "snapshot" -> "快照";
-            case "old_beta" -> "b1";
-            case "old_alpha" -> "a1";
-            default -> v.type();
-        };
+        String tv = v.type() == null ? "" : v.type();
+        String type;
+        switch (tv) {
+            case "release": type = "正式"; break;
+            case "snapshot": type = "快照"; break;
+            case "old_beta": type = "b1"; break;
+            case "old_alpha": type = "a1"; break;
+            default: type = v.type(); break;
+        }
         String date = v.releaseTime() == null || v.releaseTime().length() < 10
                 ? "" : v.releaseTime().substring(0, 10);
         return trim(v.id() + "    " + type + "    " + date, maxW);
@@ -299,7 +302,7 @@ public class DownloadPage extends Page {
                 focusShader = false;
                 modSel = 0;
                 modPage = 0;
-                modList = List.of();
+                modList = dev.mcver.core.Jdk.emptyList();
                 if (!nameEdited) name = VersionMeta.suggest(picked.id(), loader, null, shader, shaderId());
                 status = "";
                 // 先查规则表：这个组合根本不存在就直接说，不必等网络查询
@@ -307,7 +310,7 @@ public class DownloadPage extends Page {
                 if (why != null) {
                     status = why;
                     statusColor = MainScreen.C_ERR;
-                    modList = List.of();
+                    modList = dev.mcver.core.Jdk.emptyList();
                     rebuild();
                     return;
                 }
@@ -328,7 +331,7 @@ public class DownloadPage extends Page {
                 focusShader = s != LoaderInstaller.Shader.NONE;
                 shaderSel = 0;
                 shaderPage = 0;
-                shaderList = List.of();
+                shaderList = dev.mcver.core.Jdk.emptyList();
                 if (!nameEdited) name = VersionMeta.suggest(picked.id(), loader, modId(), shader, null);
                 status = "";
                 rebuild();
@@ -389,9 +392,9 @@ public class DownloadPage extends Page {
         if (focusShader) {
             if (shader == LoaderInstaller.Shader.OPTIFINE) return shaderList;
             if (shader == LoaderInstaller.Shader.IRIS) return shaderList;
-            return List.of();
+            return dev.mcver.core.Jdk.emptyList();
         }
-        return loader == LoaderInstaller.Kind.NONE ? List.of() : modList;
+        return loader == LoaderInstaller.Kind.NONE ? dev.mcver.core.Jdk.emptyList() : modList;
     }
 
     private int focusPage() { return focusShader ? shaderPage : modPage; }
@@ -498,7 +501,7 @@ public class DownloadPage extends Page {
             return;
         }
         String nm = nameField == null ? name : nameField.getText();
-        if (!nm.isBlank() && !VersionMeta.validName(nm)) {
+        if (!nm.trim().isEmpty() && !VersionMeta.validName(nm)) {
             status = "版本名里有不允许的字符";
             statusColor = MainScreen.C_ERR;
             rebuild();
@@ -589,9 +592,9 @@ public class DownloadPage extends Page {
 
     @Override
     public void render(Ctx ctx, int mouseX, int mouseY, float delta) {        switch (view) {
-            case LIST -> renderList(ctx);
-            case DETAIL -> renderDetail(ctx);
-            case PROGRESS -> renderProgress(ctx);
+            case LIST: renderList(ctx); break;
+            case DETAIL: renderDetail(ctx); break;
+            case PROGRESS: renderProgress(ctx); break;
         }
     }
 
@@ -689,19 +692,22 @@ public class DownloadPage extends Page {
         y += 12;
 
         switch (job.state) {
-            case FAILED -> {
+            case FAILED: {
                 text(ctx, "✖ " + trim(String.valueOf(job.error), w), x, y, MainScreen.C_ERR);
                 y += 11;
+                break;
             }
-            case DONE -> {
+            case DONE: {
                 text(ctx, "✔ 完成 " + job.resultVersionId, x, y, MainScreen.C_OK);
                 y += 11;
+                break;
             }
-            case CANCELLED -> {
+            case CANCELLED: {
                 text(ctx, "已终止（已下载的文件保留）", x, y, 0xFF7A5A00);
                 y += 11;
+                break;
             }
-            default -> { }
+            default: { } break;
         }
 
         if (job.state == InstallJob.State.RUNNING) {
@@ -730,19 +736,20 @@ public class DownloadPage extends Page {
     }
 
     private static String stageLabel(String stage) {
-        return switch (stage == null ? "" : stage) {
-            case "manifest" -> "获取版本清单";
-            case "version" -> "下载版本元数据";
-            case "plan" -> "解析依赖";
-            case "files" -> "下载 jar 与库";
-            case "assets" -> "下载资源文件";
-            case "loader" -> "安装加载器";
-            case "shader" -> "安装光影加载器";
-            case "rename" -> "重命名版本";
-            case "isolation" -> "开启版本隔离";
-            case "done" -> "完成";
-            default -> stage == null || stage.isBlank() ? "准备中" : stage;
-        };
+        String k = stage == null ? "" : stage;
+        switch (k) {
+            case "manifest": return "获取版本清单";
+            case "version": return "下载版本元数据";
+            case "plan": return "解析依赖";
+            case "files": return "下载 jar 与库";
+            case "assets": return "下载资源文件";
+            case "loader": return "安装加载器";
+            case "shader": return "安装光影加载器";
+            case "rename": return "重命名版本";
+            case "isolation": return "开启版本隔离";
+            case "done": return "完成";
+            default: return k.trim().isEmpty() ? "准备中" : stage;
+        }
     }
 
     private static String shorten(String s, int max) {

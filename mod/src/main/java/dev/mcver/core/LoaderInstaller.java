@@ -8,9 +8,6 @@ import java.lang.reflect.Method;
 import java.net.URI;
 import java.net.URL;
 import java.net.URLClassLoader;
-import java.net.http.HttpClient;
-import java.net.http.HttpRequest;
-import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -50,11 +47,6 @@ public final class LoaderInstaller {
         Shader(String label) { this.label = label; }
     }
 
-    private static final HttpClient HTTP = HttpClient.newBuilder()
-            .followRedirects(HttpClient.Redirect.NORMAL)
-            .connectTimeout(Duration.ofSeconds(20))
-            .build();
-
     // ================================================================ 入口
 
     /** kindVersion 为 null 时取推荐/最新。返回新生成的版本 id。 */
@@ -78,7 +70,7 @@ public final class LoaderInstaller {
     static String installFabric(Path gameDir, String mc, String want, Path java, Consumer<String> log)
             throws Exception {
         String loader = want;
-        if (loader == null || loader.isBlank()) {
+        if (loader == null || loader.trim().isEmpty()) {
             log.accept("查询 Fabric loader 版本…");
             String meta = Net.getMirrored(
                     "https://meta.fabricmc.net/v2/versions/loader/" + mc,
@@ -172,7 +164,7 @@ public final class LoaderInstaller {
         Path verDir = gameDir.resolve("versions").resolve(id);
         Files.createDirectories(verDir);
         Launcher.markIncomplete(verDir);
-        Files.writeString(verDir.resolve(id + ".json"), Json.write(profile), java.nio.charset.StandardCharsets.UTF_8);
+        dev.mcver.core.Jdk.writeString(verDir.resolve(id + ".json"), Json.write(profile), java.nio.charset.StandardCharsets.UTF_8);
         Launcher.markComplete(verDir);
         log.accept("写入 " + id + ".json");
     }
@@ -196,7 +188,7 @@ public final class LoaderInstaller {
     static String installQuilt(Path gameDir, String mc, String want, Path java, Consumer<String> log)
             throws Exception {
         String loader = want;
-        if (loader == null || loader.isBlank()) {
+        if (loader == null || loader.trim().isEmpty()) {
             String meta = get("https://meta.quiltmc.org/v3/versions/loader/" + mc);
             List<Object> list = Json.arr(Json.parse(meta));
             if (list.isEmpty()) throw new IOException("Quilt 不支持 " + mc);
@@ -243,11 +235,11 @@ public final class LoaderInstaller {
     static String installForge(Path gameDir, String mc, String want, Path java, Consumer<String> log)
             throws Exception {
         String ver = want;
-        if (ver == null || ver.isBlank()) {
+        if (ver == null || ver.trim().isEmpty()) {
             log.accept("查询 Forge 版本…");
             // 走 LoaderVersions：BMCLAPI 优先，官方 maven / promotions 兵底。
             // （以前这里直连 promotions_slim.json，国内经常读超时，26.1 就是这么挂的）
-            var list = LoaderVersions.fetch(Kind.FORGE, mc);
+            java.util.List<LoaderVersions.Lv> list = LoaderVersions.fetch(Kind.FORGE, mc);
             if (list.isEmpty()) throw new IOException("Forge 没有 " + mc + " 的版本");
             ver = list.get(0).id();
         }
@@ -332,7 +324,7 @@ public final class LoaderInstaller {
             String txt = zipText(z, "install_profile.json");
             if (txt == null) return null;
             String v = Json.str(Json.obj(Json.parse(txt)), "version", null);
-            return v == null || v.isBlank() ? null : v.trim();
+            return v == null || v.trim().isEmpty() ? null : v.trim();
         } catch (Exception e) {
             return null;
         }
@@ -355,7 +347,53 @@ public final class LoaderInstaller {
      * 后者经常被漏，漏了就会在处理器阶段才炸。
      */
     /** 一条预取任务：落盘相对路径 + 候选地址 + 期望的 sha1/size（清单给了才校验）。 */
-    private record Fetch(String rel, List<String> urls, String sha1, long size) { }
+    private static final class Fetch {
+
+        // —— 原来是 record，为了 Java 8 兼容改写成普通类；字段名/方法名跟 record 一致，
+        //    所以 found.exe 和 found.exe() 两种写法都还能用。
+        public final String rel;
+        public final List<String> urls;
+        public final String sha1;
+        public final long size;
+
+        public Fetch(String rel, List<String> urls, String sha1, long size) {
+            this.rel = rel;
+            this.urls = urls;
+            this.sha1 = sha1;
+            this.size = size;
+        }
+
+        public String rel() { return rel; }
+        public List<String> urls() { return urls; }
+        public String sha1() { return sha1; }
+        public long size() { return size; }
+
+        @Override
+        public boolean equals(Object o) {
+            if (this == o) return true;
+            if (!(o instanceof Fetch)) return false;
+            Fetch that = (Fetch) o;
+            return true
+                && java.util.Objects.equals(rel, that.rel)
+                && java.util.Objects.equals(urls, that.urls)
+                && java.util.Objects.equals(sha1, that.sha1)
+                && size == that.size;
+        }
+
+        @Override
+        public int hashCode() {
+            return java.util.Objects.hash(
+                java.util.Objects.hashCode(rel),
+                java.util.Objects.hashCode(urls),
+                java.util.Objects.hashCode(sha1),
+                size);
+        }
+
+        @Override
+        public String toString() {
+            return "Fetch[" + "rel=" + rel + ", " + "urls=" + urls + ", " + "sha1=" + sha1 + ", " + "size=" + size + "]";
+        }
+    }
 
     static int prefetchInstallerLibraries(Path gameDir, Path installerJar, Consumer<String> log) {
         // 关键：**不能**用 name 拼路径。Forge 1.14.4 的 name 写作
@@ -481,8 +519,8 @@ public final class LoaderInstaller {
     }
 
     private static String sha1(Path f) throws Exception {
-        var md = java.security.MessageDigest.getInstance("SHA-1");
-        try (var in = Files.newInputStream(f)) {
+        java.security.MessageDigest md = java.security.MessageDigest.getInstance("SHA-1");
+        try (java.io.InputStream in = Files.newInputStream(f)) {
             byte[] buf = new byte[64 * 1024];
             int n;
             while ((n = in.read(buf)) > 0) md.update(buf, 0, n);
@@ -518,14 +556,14 @@ public final class LoaderInstaller {
         if (art == null) return false;
         String rel = Json.str(art, "path", null);
         String url = Json.str(art, "url", null);
-        if ((rel == null || rel.isBlank()) && url == null) return false;
+        if ((rel == null || rel.trim().isEmpty()) && url == null) return false;
 
         // path 和 url 的路径**经常不一致**，以 url 为准：
         //   path: .../1.0.5-shadowed/accesstransformers-1.0.5-shadowed.jar   （错）
         //   url : .../1.0.5/accesstransformers-1.0.5-shadowed.jar            （对）
         // 但落盘位置必须按 path —— 安装器就是去那个位置找。
         String relFromUrl = relOf(url);
-        String key = (rel == null || rel.isBlank()) ? relFromUrl : rel;
+        String key = (rel == null || rel.trim().isEmpty()) ? relFromUrl : rel;
         if (key == null) return false;
 
         // 镜像在前、清单里的原始 url 垫底。原 url 基本都指向 maven.minecraftforge.net，
@@ -533,7 +571,7 @@ public final class LoaderInstaller {
         List<String> urls = new ArrayList<>();
         if (relFromUrl != null) for (String u : mirrorUrls(relFromUrl)) if (!urls.contains(u)) urls.add(u);
         if (!key.equals(relFromUrl)) for (String u : mirrorUrls(key)) if (!urls.contains(u)) urls.add(u);
-        if (url != null && !url.isBlank() && !urls.contains(url)) urls.add(url);
+        if (url != null && !url.trim().isEmpty() && !urls.contains(url)) urls.add(url);
 
         String sha1 = Json.str(art, "sha1", null);
         long size = Json.num(art, "size", 0);
@@ -562,7 +600,7 @@ public final class LoaderInstaller {
 
     /** https://host/path/to/file.jar → path/to/file.jar；解析不出来返回 null。 */
     private static String relOf(String url) {
-        if (url == null || url.isBlank()) return null;
+        if (url == null || url.trim().isEmpty()) return null;
         try {
             String p = java.net.URI.create(url).getPath();
             if (p == null) return null;
@@ -597,7 +635,7 @@ public final class LoaderInstaller {
     }
 
     private static List<Object> nz(List<Object> l) {
-        return l == null ? List.of() : l;
+        return l == null ? dev.mcver.core.Jdk.emptyList() : l;
     }
 
     /** 安装器报错是不是「不认识这个选项」（老 Forge 没有 --installClient）。 */
@@ -645,7 +683,7 @@ public final class LoaderInstaller {
             Files.createDirectories(dst.getParent());
             java.util.zip.ZipEntry e = z.getEntry(filePath);
             if (e == null) throw new IOException("安装器里没有 " + filePath);
-            try (var in = z.getInputStream(e)) {
+            try (java.io.InputStream in = z.getInputStream(e)) {
                 Files.copy(in, dst, java.nio.file.StandardCopyOption.REPLACE_EXISTING);
             }
             log.accept("已解出 " + filePath);
@@ -653,7 +691,7 @@ public final class LoaderInstaller {
             // 2) versionInfo → versions/<target>/<target>.json
             Path verDir = gameDir.resolve("versions").resolve(target);
             Files.createDirectories(verDir);
-            Files.writeString(verDir.resolve(target + ".json"), Json.write(vi), StandardCharsets.UTF_8);
+            dev.mcver.core.Jdk.writeString(verDir.resolve(target + ".json"), Json.write(vi), StandardCharsets.UTF_8);
             log.accept("写出版本 json: versions/" + target + "/" + target + ".json");
 
             // 3) versionInfo 里声明的库
@@ -685,12 +723,12 @@ public final class LoaderInstaller {
     static String findFreshVersionId(Path gameDir, String... hints) {
         Path dir = gameDir.resolve("versions");
         if (!Files.isDirectory(dir)) return null;
-        try (var ds = Files.list(dir)) {
+        try (java.util.stream.Stream<java.nio.file.Path> ds = Files.list(dir)) {
             return ds.filter(Files::isDirectory)
                     .filter(d -> {
                         String n = d.getFileName().toString();
                         for (String h : hints) {
-                            if (h != null && !h.isBlank() && n.contains(h)) return true;
+                            if (h != null && !h.trim().isEmpty() && n.contains(h)) return true;
                         }
                         return false;
                     })
@@ -707,7 +745,7 @@ public final class LoaderInstaller {
     static String installNeoForge(Path gameDir, String mc, String want, Path java, Consumer<String> log)
             throws Exception {
         String best = want;
-        if (best == null || best.isBlank()) {
+        if (best == null || best.trim().isEmpty()) {
             // 以前直接查 maven.neoforged.net 的 API —— 国内连不上（DNS 污染/链路不通），
             // 走 LoaderVersions 那套「BMCLAPI 优先、官方兵底」的多源列表。
             log.accept("查询 NeoForge 版本…");
@@ -804,7 +842,7 @@ public final class LoaderInstaller {
         if (profile == null) throw new IOException("install_profile.json 不是对象");
         Map<String, Object> vj = Json.obj(Json.parse(versionJson));
         String id = Json.str(vj, "id", null);
-        if (id == null || id.isBlank()) throw new IOException("version.json 里没有 id");
+        if (id == null || id.trim().isEmpty()) throw new IOException("version.json 里没有 id");
         String mc = Json.str(profile, "minecraft", Json.str(vj, "inheritsFrom", null));
         Path mcJar = gameDir.resolve("versions").resolve(mc).resolve(mc + ".jar");
         if (!Files.isRegularFile(mcJar)) throw new IOException("找不到原版 jar: " + mcJar);
@@ -818,12 +856,12 @@ public final class LoaderInstaller {
         java.util.LinkedHashSet<String> coords = new java.util.LinkedHashSet<>();        for (Object o : Json.arr(vj.get("libraries"))) {
             Map<String, Object> lib = Json.obj(o);
             String name = Json.str(lib, "name", null);
-            if (name != null && !name.isBlank()) coords.add(name);
+            if (name != null && !name.trim().isEmpty()) coords.add(name);
         }
         for (Object o : Json.arr(profile.get("libraries"))) {
             Map<String, Object> lib = Json.obj(o);
             String name = Json.str(lib, "name", null);
-            if (name != null && !name.isBlank()) coords.add(name);
+            if (name != null && !name.trim().isEmpty()) coords.add(name);
         }
         int total = coords.size();
         int threads = Math.max(1, Math.min(8, Config.downloadThreads > 0 ? Config.downloadThreads : 4));
@@ -886,7 +924,7 @@ public final class LoaderInstaller {
             List<String> cp = new ArrayList<>();
             for (Object c : Json.arr(p.get("classpath"))) {
                 String coord = Json.str(c);
-                if (coord != null && !coord.isBlank()) cp.add(ensureMaven(gameDir, coord).toString());
+                if (coord != null && !coord.trim().isEmpty()) cp.add(ensureMaven(gameDir, coord).toString());
             }
             if (cp.isEmpty()) cp.add(procJar.toString());
             // 处理器自己的 jar 必须进 classpath：有些 profile（如 NeoForge 1.20.1）的
@@ -1005,7 +1043,7 @@ public final class LoaderInstaller {
             }
             String[] p = coord.split(":");
             if (p.length < 3) throw new IOException("无法解析 maven 坐标: " + coordRaw);
-            String classifier = p.length > 3 && !p[3].isBlank() ? p[3].trim() : null;
+            String classifier = p.length > 3 && !p[3].trim().isEmpty() ? p[3].trim() : null;
             return new Mvn(p[0].trim(), p[1].trim(), p[2].trim(), classifier, ext);
         }
 
@@ -1026,8 +1064,8 @@ public final class LoaderInstaller {
     private static String zipText(java.util.zip.ZipFile z, String name) throws IOException {
         java.util.zip.ZipEntry e = z.getEntry(name);
         if (e == null) return null;
-        try (var in = z.getInputStream(e)) {
-            return new String(in.readAllBytes(), StandardCharsets.UTF_8);
+        try (java.io.InputStream in = z.getInputStream(e)) {
+            return dev.mcver.core.Jdk.readAllText(in);
         }
     }
 
@@ -1059,7 +1097,7 @@ public final class LoaderInstaller {
             try (java.util.zip.ZipFile z = new java.util.zip.ZipFile(installerJar.toFile())) {
                 java.util.zip.ZipEntry e = z.getEntry(entry);
                 if (e == null) throw new IOException("安装器里找不到 " + raw);
-                try (var in = z.getInputStream(e)) {
+                try (java.io.InputStream in = z.getInputStream(e)) {
                     Files.copy(in, out, java.nio.file.StandardCopyOption.REPLACE_EXISTING);
                 }
             }
@@ -1108,9 +1146,9 @@ public final class LoaderInstaller {
         ensureLauncherProfiles(gameDir);
 
         // ofId 为 null 表示「用推荐版」：下载页没指定版本时走这里，不能直接 NPE。
-        if (ofId == null || ofId.isBlank()) {
+        if (ofId == null || ofId.trim().isEmpty()) {
             log.accept("查询 OptiFine 版本…");
-            var list = LoaderVersions.optifineList(mc);
+            java.util.List<LoaderVersions.Lv> list = LoaderVersions.optifineList(mc);
             if (list.isEmpty()) throw new IOException("OptiFine 没有 " + mc + " 的版本");
             ofId = list.get(0).id();
             log.accept("选用 OptiFine " + ofId);
@@ -1157,7 +1195,7 @@ public final class LoaderInstaller {
     /** 把打包进来的 optifine-runner.jar 解到磁盘（每次覆盖，保证跟当前版本一致）。 */
     private static void extractRunner(Path dst) throws IOException {
         Files.createDirectories(dst.getParent());
-        try (var in = LoaderInstaller.class.getResourceAsStream("/optifine-runner.jar")) {
+        try (java.io.InputStream in = LoaderInstaller.class.getResourceAsStream("/optifine-runner.jar")) {
             if (in == null) throw new IOException("mod 里缺少 optifine-runner.jar 资源（构建时没生成？）");
             Files.copy(in, dst, java.nio.file.StandardCopyOption.REPLACE_EXISTING);
         }
@@ -1180,7 +1218,7 @@ public final class LoaderInstaller {
         if (!Files.isDirectory(dir)) return null;
         String best = null;
         long bestTime = -1;
-        try (var ds = Files.list(dir)) {
+        try (java.util.stream.Stream<java.nio.file.Path> ds = Files.list(dir)) {
             for (Path p : (Iterable<Path>) ds::iterator) {
                 String n = p.getFileName().toString();
                 if (!n.startsWith(mc + "-OptiFine")) continue;
@@ -1202,7 +1240,7 @@ public final class LoaderInstaller {
         List<Modrinth.Ver> iris = Modrinth.versions("iris", mc, "fabric");
         if (iris.isEmpty()) throw new IOException("Iris 没有适配 " + mc + " 的版本");
         Modrinth.Ver pick = null;
-        if (wantIrisVer != null && !wantIrisVer.isBlank()) {
+        if (wantIrisVer != null && !wantIrisVer.trim().isEmpty()) {
             for (Modrinth.Ver v : iris) {
                 if (v.number().equals(wantIrisVer)) { pick = v; break; }
             }
@@ -1231,13 +1269,11 @@ public final class LoaderInstaller {
     public static void ensureLauncherProfiles(Path gameDir) throws IOException {
         Path p = gameDir.resolve("launcher_profiles.json");
         if (Files.exists(p)) return;
-        String json = """
-                {
-                  "profiles": {},
-                  "settings": { "enableSnapshots": false },
-                  "version": 3
-                }
-                """;
+        String json = "{\n"
+                + "  \"profiles\": {},\n"
+                + "  \"settings\": { \"enableSnapshots\": false },\n"
+                + "  \"version\": 3\n"
+                + "}\n";
         // 必须无 BOM：OptiFine 安装器的 JSON 解析器受不了 BOM
         Files.write(p, json.getBytes(StandardCharsets.UTF_8));
     }
@@ -1364,7 +1400,7 @@ public final class LoaderInstaller {
                 new InputStreamReader(proc.getInputStream(), StandardCharsets.UTF_8))) {
             String line;
             while ((line = r.readLine()) != null) {
-                if (line.isBlank()) continue;
+                if (line.trim().isEmpty()) continue;
                 log.accept(line);
                 String s = line.toLowerCase(java.util.Locale.ROOT);
                 if (s.contains("unrecognizedoptionexception") || s.contains("not a recognized option")) {
@@ -1384,7 +1420,7 @@ public final class LoaderInstaller {
     public static String findInstalledLoaderId(Path gameDir, String mc) {
         Path dir = gameDir.resolve("versions");
         if (!Files.isDirectory(dir)) return null;
-        try (var ds = Files.list(dir)) {
+        try (java.util.stream.Stream<java.nio.file.Path> ds = Files.list(dir)) {
             return ds.filter(Files::isDirectory)
                     .map(d -> d.getFileName().toString())
                     .filter(n -> (n.startsWith("fabric-loader-") || n.startsWith("quilt-loader-")) && n.endsWith(mc)

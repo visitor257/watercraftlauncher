@@ -2,9 +2,6 @@ package dev.mcver.core;
 
 import java.net.URI;
 import java.net.URLEncoder;
-import java.net.http.HttpClient;
-import java.net.http.HttpRequest;
-import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.LinkedHashMap;
@@ -34,11 +31,6 @@ public final class Auth {
     private static final String MC_LOGIN_URL =
             "https://api.minecraftservices.com/authentication/login_with_xbox";
     private static final String MC_PROFILE_URL = "https://api.minecraftservices.com/minecraft/profile";
-
-    private static final HttpClient HTTP = HttpClient.newBuilder()
-            .connectTimeout(Duration.ofSeconds(20))
-            .followRedirects(HttpClient.Redirect.NORMAL)
-            .build();
 
     private Auth() { }
 
@@ -228,49 +220,31 @@ public final class Auth {
     // ================================================================ HTTP
 
     private static Map<String, Object> postForm(String url, String form) throws Exception {
-        HttpRequest req = HttpRequest.newBuilder(URI.create(url))
-                .timeout(Duration.ofSeconds(30))
-                .header("Content-Type", "application/x-www-form-urlencoded")
-                .header("Accept", "application/json")
-                .POST(HttpRequest.BodyPublishers.ofString(form, StandardCharsets.UTF_8))
-                .build();
-        return send(req);
+        return wrap(Net.postForm(url, form, 15_000, 30_000));
     }
 
     private static Map<String, Object> postJson(String url, String body, String bearer) throws Exception {
-        HttpRequest.Builder b = HttpRequest.newBuilder(URI.create(url))
-                .timeout(Duration.ofSeconds(30))
-                .header("Content-Type", "application/json")
-                .header("Accept", "application/json")
-                .POST(HttpRequest.BodyPublishers.ofString(body, StandardCharsets.UTF_8));
-        if (bearer != null) b.header("Authorization", "Bearer " + bearer);
-        return send(b.build());
+        return wrap(Net.postJson(url, body, bearer, 15_000, 30_000));
     }
 
     private static Map<String, Object> getJson(String url, String bearer) throws Exception {
-        HttpRequest req = HttpRequest.newBuilder(URI.create(url))
-                .timeout(Duration.ofSeconds(30))
-                .header("Accept", "application/json")
-                .header("Authorization", "Bearer " + bearer)
-                .GET()
-                .build();
-        return send(req);
+        return wrap(Net.getJson(url, bearer, 15_000, 30_000));
     }
 
-    private static Map<String, Object> send(HttpRequest req) throws Exception {
-        HttpResponse<String> r = HTTP.send(req, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+    /** 统一成「json 对象 + __status」，调用方原来就是这么用的。 */
+    private static Map<String, Object> wrap(Net.Resp r) {
         Map<String, Object> m;
         try {
-            m = new LinkedHashMap<>(Json.obj(Json.parse(r.body())));
+            m = new LinkedHashMap<>(Json.obj(Json.parse(r.text)));
         } catch (Exception e) {
             m = new LinkedHashMap<>();
         }
-        m.put("__status", r.statusCode());
+        m.put("__status", r.status);
         return m;
     }
 
     private static String enc(String s) {
-        return URLEncoder.encode(s, StandardCharsets.UTF_8);
+        return dev.mcver.core.Jdk.urlEncode(s);
     }
 
     private static String escape(String s) {

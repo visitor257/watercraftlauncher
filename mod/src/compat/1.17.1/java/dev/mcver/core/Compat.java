@@ -26,15 +26,25 @@ public final class Compat {
 
     /** 会话里的玩家 uuid，去掉横线的那种；拿不到就 null。 */
     public static String sessionUuid() {
-        var session = MinecraftClient.getInstance().getSession();
+        net.minecraft.client.util.Session session = MinecraftClient.getInstance().getSession();
         String uuid = session.getUuid();
         return uuid == null ? null : uuid.replace("-", "");
     }
 
     /** 存一张截图（自检用）。1.17+ 的类叫 ScreenshotRecorder，参数是 Framebuffer。 */
     public static void saveScreenshot(String name) {
-        var mc = MinecraftClient.getInstance();
+        MinecraftClient mc = MinecraftClient.getInstance();
         net.minecraft.client.util.ScreenshotRecorder.saveScreenshot(
                 mc.runDirectory, name, mc.getFramebuffer(), t -> { });
+    }
+
+    /** 会话里的玩家名（正版/离线都行）。 */
+    public static String sessionName() {
+        return MinecraftClient.getInstance().getSession().getUsername();
+    }
+
+    /** 会话里的 access token。 */
+    public static String sessionToken() {
+        return MinecraftClient.getInstance().getSession().getAccessToken();
     }
 }

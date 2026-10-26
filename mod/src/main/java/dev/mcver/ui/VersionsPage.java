@@ -140,24 +140,27 @@ public class VersionsPage extends Page {
             int bx = x + i * (bw + gap);
             add(Btn.builder(Txt.of(labels[i]), b -> {
                 switch (idx) {
-                    case 0 -> {
+                    case 0: {
                         if (selected == null) { status = "先选一个版本"; statusColor = MainScreen.C_ERR; return; }
                         renaming = true;
                         status = "";
                         host.rebuild();
+                        break;
                     }
-                    case 1 -> {
+                    case 1: {
                         if (selected == null) { status = "先选一个版本"; statusColor = MainScreen.C_ERR; return; }
                         confirmingDelete = true;
                         status = "";
                         host.rebuild();
+                        break;
                     }
-                    case 2 -> completeSelected();
-                    case 3 -> openFolder();
-                    case 4 -> openLaunchLog();
-                    case 5 -> toggleIsolation();
-                    default -> {
+                    case 2: completeSelected(); break;
+                    case 3: openFolder(); break;
+                    case 4: openLaunchLog(); break;
+                    case 5: toggleIsolation(); break;
+                    default: {
                         if (child != null) mergeInto(child); else toggleHidden();
+                        break;
                     }
                 }
             }).dimensions(bx, bottomY(), bw, 18).build());
@@ -268,10 +271,10 @@ public class VersionsPage extends Page {
             Path oldJson = to.resolve(selected + ".json");
             Path newJson = to.resolve(neu + ".json");
             if (Files.isRegularFile(oldJson)) {
-                String text = Files.readString(oldJson, StandardCharsets.UTF_8);
+                String text = dev.mcver.core.Jdk.readString(oldJson, StandardCharsets.UTF_8);
                 text = text.replaceFirst("(\"id\"\\s*:\\s*\")" + java.util.regex.Pattern.quote(selected) + "(\")",
                         "$1" + neu.replace("\\", "\\\\").replace("$", "\\$") + "$2");
-                Files.writeString(newJson, text, StandardCharsets.UTF_8);
+                dev.mcver.core.Jdk.writeString(newJson, text, StandardCharsets.UTF_8);
                 if (!oldJson.equals(newJson)) Files.deleteIfExists(oldJson);
             }
             status = "已重命名为 " + neu;
@@ -311,8 +314,8 @@ public class VersionsPage extends Page {
     /** 真删（递归），不做回收站。 */
     private static void deleteTree(Path root) throws java.io.IOException {
         if (!Files.exists(root)) return;
-        try (var s = Files.walk(root)) {
-            for (Path p : s.sorted(java.util.Comparator.reverseOrder()).toList()) {
+        try (java.util.stream.Stream<java.nio.file.Path> s = Files.walk(root)) {
+            for (Path p : s.sorted(java.util.Comparator.reverseOrder()).collect(java.util.stream.Collectors.toList())) {
                 Files.deleteIfExists(p);
             }
         }
@@ -322,7 +325,7 @@ public class VersionsPage extends Page {
     private void openLaunchLog() {
         Path logs = runDirOf(selected).resolve("logs");
         Path newest = null;
-        try (var s = Files.list(logs)) {
+        try (java.util.stream.Stream<java.nio.file.Path> s = Files.list(logs)) {
             newest = s.filter(Files::isRegularFile)
                     .filter(p -> p.getFileName().toString().startsWith("mcver-launch-"))
                     .max(java.util.Comparator.comparingLong(p -> p.toFile().lastModified()))
@@ -383,7 +386,7 @@ public class VersionsPage extends Page {
                 statusColor = MainScreen.C_ERR;
                 return;
             }
-            String text = Files.readString(json, StandardCharsets.UTF_8);
+            String text = dev.mcver.core.Jdk.readString(json, StandardCharsets.UTF_8);
             if (text.contains("\"inheritsFrom\"")) {
                 status = "加载器版本请用「下载版本」重装一遍";
                 statusColor = MainScreen.C_ERR;

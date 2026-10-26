@@ -2,9 +2,6 @@ package dev.mcver.core;
 
 import java.net.URI;
 import java.net.URLEncoder;
-import java.net.http.HttpClient;
-import java.net.http.HttpRequest;
-import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -17,14 +14,91 @@ import java.util.Map;
 /** Modrinth 的只读接口：查版本、下载文件。用来装 Iris / Sodium。 */
 public final class Modrinth {
 
-    private static final HttpClient HTTP = HttpClient.newBuilder()
-            .followRedirects(HttpClient.Redirect.NORMAL)
-            .connectTimeout(Duration.ofSeconds(20))
-            .build();
+    public static final class File {
 
-    public record File(String url, String filename) { }
+        // —— 原来是 record，为了 Java 8 兼容改写成普通类；字段名/方法名跟 record 一致，
+        //    所以 found.exe 和 found.exe() 两种写法都还能用。
+        public final String url;
+        public final String filename;
 
-    public record Ver(String id, String number, String channel, List<File> files) { }
+        public File(String url, String filename) {
+            this.url = url;
+            this.filename = filename;
+        }
+
+        public String url() { return url; }
+        public String filename() { return filename; }
+
+        @Override
+        public boolean equals(Object o) {
+            if (this == o) return true;
+            if (!(o instanceof File)) return false;
+            File that = (File) o;
+            return true
+                && java.util.Objects.equals(url, that.url)
+                && java.util.Objects.equals(filename, that.filename);
+        }
+
+        @Override
+        public int hashCode() {
+            return java.util.Objects.hash(
+                java.util.Objects.hashCode(url),
+                java.util.Objects.hashCode(filename));
+        }
+
+        @Override
+        public String toString() {
+            return "File[" + "url=" + url + ", " + "filename=" + filename + "]";
+        }
+    }
+
+    public static final class Ver {
+
+        // —— 原来是 record，为了 Java 8 兼容改写成普通类；字段名/方法名跟 record 一致，
+        //    所以 found.exe 和 found.exe() 两种写法都还能用。
+        public final String id;
+        public final String number;
+        public final String channel;
+        public final List<File> files;
+
+        public Ver(String id, String number, String channel, List<File> files) {
+            this.id = id;
+            this.number = number;
+            this.channel = channel;
+            this.files = files;
+        }
+
+        public String id() { return id; }
+        public String number() { return number; }
+        public String channel() { return channel; }
+        public List<File> files() { return files; }
+
+        @Override
+        public boolean equals(Object o) {
+            if (this == o) return true;
+            if (!(o instanceof Ver)) return false;
+            Ver that = (Ver) o;
+            return true
+                && java.util.Objects.equals(id, that.id)
+                && java.util.Objects.equals(number, that.number)
+                && java.util.Objects.equals(channel, that.channel)
+                && java.util.Objects.equals(files, that.files);
+        }
+
+        @Override
+        public int hashCode() {
+            return java.util.Objects.hash(
+                java.util.Objects.hashCode(id),
+                java.util.Objects.hashCode(number),
+                java.util.Objects.hashCode(channel),
+                java.util.Objects.hashCode(files));
+        }
+
+        @Override
+        public String toString() {
+            return "Ver[" + "id=" + id + ", " + "number=" + number + ", " + "channel=" + channel + ", " + "files=" + files + "]";
+        }
+    }
 
     public static List<Ver> versions(String project, String mc, String loader) throws Exception {
         String url = "https://api.modrinth.com/v2/project/" + project + "/version"
@@ -62,7 +136,7 @@ public final class Modrinth {
     }
 
     private static String enc(String s) {
-        return URLEncoder.encode(s, StandardCharsets.UTF_8);
+        return dev.mcver.core.Jdk.urlEncode(s);
     }
 
     private Modrinth() { }

@@ -1,9 +1,6 @@
 package dev.mcver.core;
 
 import java.net.URI;
-import java.net.http.HttpClient;
-import java.net.http.HttpRequest;
-import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.ArrayList;
@@ -21,25 +18,59 @@ import java.util.regex.Pattern;
 public final class LoaderVersions {
 
     /** 一个可选版本：id 是给 installer 用的，note 是给人看的补充。 */
-    public record Lv(String id, String note) {
+    public static final class Lv {
+
+        // —— 原来是 record，为了 Java 8 兼容改写成普通类；字段名/方法名跟 record 一致，
+        //    所以 found.exe 和 found.exe() 两种写法都还能用。
+        public final String id;
+        public final String note;
+
+        public Lv(String id, String note) {
+            this.id = id;
+            this.note = note;
+        }
+
+        public String id() { return id; }
+        public String note() { return note; }
+
+        @Override
+        public boolean equals(Object o) {
+            if (this == o) return true;
+            if (!(o instanceof Lv)) return false;
+            Lv that = (Lv) o;
+            return true
+                && java.util.Objects.equals(id, that.id)
+                && java.util.Objects.equals(note, that.note);
+        }
+
+        @Override
+        public int hashCode() {
+            return java.util.Objects.hash(
+                java.util.Objects.hashCode(id),
+                java.util.Objects.hashCode(note));
+        }
+
+        @Override
+        public String toString() {
+            return "Lv[" + "id=" + id + ", " + "note=" + note + "]";
+        }
+
+        // —— 以下为原 record 里的自定义方法
+
         public String label() {
-            return note == null || note.isBlank() ? id : id + "  " + note;
+            return note == null || note.trim().isEmpty() ? id : id + "  " + note;
         }
     }
 
-    private static final HttpClient HTTP = HttpClient.newBuilder()
-            .followRedirects(HttpClient.Redirect.NORMAL)
-            .connectTimeout(Duration.ofSeconds(15))
-            .build();
-
     public static List<Lv> fetch(LoaderInstaller.Kind kind, String mc) throws Exception {
-        return switch (kind) {
-            case FABRIC -> fabric(mc);
-            case QUILT -> quilt(mc);
-            case FORGE -> forge(mc);
-            case NEOFORGE -> neoforge(mc);
-            case NONE -> List.of();
-        };
+        switch (kind) {
+            case FABRIC: return fabric(mc);
+            case QUILT: return quilt(mc);
+            case FORGE: return forge(mc);
+            case NEOFORGE: return neoforge(mc);
+            case NONE: return dev.mcver.core.Jdk.emptyList();
+            default: return dev.mcver.core.Jdk.emptyList();
+        }
     }
 
     // ---------------------------------------------------------------- Fabric
@@ -150,7 +181,7 @@ public final class LoaderVersions {
      * </pre>
      */
     static String neoPrefix(String mc) {
-        if (mc == null || mc.isBlank()) return null;
+        if (mc == null || mc.trim().isEmpty()) return null;
         if ("1.20.1".equals(mc)) return "47.";
         String s = mc.startsWith("1.") ? mc.substring(2) : mc;
         if (!s.matches("\\d+(\\.\\d+)*")) return null;

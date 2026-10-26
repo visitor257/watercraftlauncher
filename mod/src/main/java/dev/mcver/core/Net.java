@@ -31,7 +31,7 @@ public final class Net {
             int code = c.getResponseCode();
             if (code / 100 != 2) throw new IOException("HTTP " + code + "  " + url);
             try (InputStream in = c.getInputStream()) {
-                return new String(in.readAllBytes(), StandardCharsets.UTF_8);
+                return new String(Jdk.readAll(in), StandardCharsets.UTF_8);
             }
         } finally {
             c.disconnect();
@@ -107,6 +107,71 @@ public final class Net {
         // 明确不用 gzip：省得自己解压
         c.setRequestProperty("Accept-Encoding", "identity");
         return c;
+    }
+
+    // ---------------------------------------------------------------- POST / JSON
+    // Auth 那几个接口要 POST。原来用 java.net.http.HttpRequest，Java 8 上没有，这里补上等价物。
+
+    /** 一次请求的结果：状态码 + 正文（小响应，几十 KB 以内）。 */
+    public static final class Resp {
+        public final int status;
+        public final String text;
+
+        Resp(int status, String text) {
+            this.status = status;
+            this.text = text;
+        }
+
+        public boolean ok() { return status / 100 == 2; }
+
+        @Override
+        public String toString() { return "HTTP " + status; }
+    }
+
+    /** application/x-www-form-urlencoded 的 POST。 */
+    public static Resp postForm(String url, String form, int connectMs, int readMs) throws IOException {
+        return request("POST", url, form.getBytes(StandardCharsets.UTF_8),
+                "application/x-www-form-urlencoded", null, connectMs, readMs);
+    }
+
+    /** application/json 的 POST；bearer 传 null 就不带 Authorization。 */
+    public static Resp postJson(String url, String body, String bearer, int connectMs, int readMs) throws IOException {
+        return request("POST", url, body.getBytes(StandardCharsets.UTF_8),
+                "application/json", bearer, connectMs, readMs);
+    }
+
+    /** 带 Authorization 的 GET。 */
+    public static Resp getJson(String url, String bearer, int connectMs, int readMs) throws IOException {
+        return request("GET", url, null, null, bearer, connectMs, readMs);
+    }
+
+    private static Resp request(String method, String url, byte[] body, String contentType,
+                                String bearer, int connectMs, int readMs) throws IOException {
+        HttpURLConnection c = open(url, connectMs, readMs);
+        try {
+            c.setRequestMethod(method);
+            c.setRequestProperty("Accept", "application/json");
+            if (contentType != null) c.setRequestProperty("Content-Type", contentType);
+            if (bearer != null) c.setRequestProperty("Authorization", "Bearer " + bearer);
+            if (body != null) {
+                c.setDoOutput(true);
+                c.setFixedLengthStreamingMode(body.length);
+                try (OutputStream out = c.getOutputStream()) {
+                    out.write(body);
+                }
+            }
+            int code = c.getResponseCode();
+            InputStream in = code / 100 == 2 ? c.getInputStream() : c.getErrorStream();
+            String text = "";
+            if (in != null) {
+                try (InputStream i = in) {
+                    text = new String(Jdk.readAll(i), StandardCharsets.UTF_8);
+                }
+            }
+            return new Resp(code, text);
+        } finally {
+            c.disconnect();
+        }
     }
 
     /** jar 是不是完整的（能不能当 zip 打开）。下载中途断掉的文件会在这里被拓出来。 */

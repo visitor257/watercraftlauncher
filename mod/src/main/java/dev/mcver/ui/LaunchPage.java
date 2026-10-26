@@ -407,14 +407,14 @@ public class LaunchPage extends Page {
             try {
                 Path wd = r.logFile.getParent() == null ? null : r.logFile.getParent().getParent();
                 if (wd != null) {
-                    Path err = wd.resolve("hs_err_pid" + r.process.pid() + ".log");
+                    Path err = wd.resolve("hs_err_pid" + dev.mcver.core.Jdk.pid(r.process) + ".log");
                     if (Files.isRegularFile(err)) hs = "（JVM 崩溃报告: " + err + "）";
                 }
             } catch (Exception ignored) { }
 
             final String hint = hs.isEmpty()
-                    ? "pid " + r.process.pid() + " 还活着，但 25 秒没窗口（日志没到 Backend library）。看: " + r.logFile
-                    : "pid " + r.process.pid() + " 卡在开窗口，JVM 崩了" + hs;
+                    ? "pid " + dev.mcver.core.Jdk.pid(r.process) + " 还活着，但 25 秒没窗口（日志没到 Backend library）。看: " + r.logFile
+                    : "pid " + dev.mcver.core.Jdk.pid(r.process) + " 卡在开窗口，JVM 崩了" + hs;
             MinecraftClient mc = MinecraftClient.getInstance();
             mc.execute(() -> {
                 status = hint;
@@ -444,7 +444,6 @@ public class LaunchPage extends Page {
 
         // 注意：Session 的包名跨版本变过（1.20.1 是 client.util，1.21 起是 client.session），
         // 所以这里只写 var，不 import 具体类；用到的三个方法在两个版本里签名一致。
-        var s = MinecraftClient.getInstance().getSession();
         Account acc = Config.account();
         final String player;
         final String uuid;
@@ -454,9 +453,9 @@ public class LaunchPage extends Page {
             uuid = acc.uuid;
             token = acc.accessToken.isEmpty() ? "0" : acc.accessToken;
         } else {
-            player = s.getUsername();
+            player = dev.mcver.core.Compat.sessionName();
             uuid = dev.mcver.core.Compat.sessionUuid() == null ? "0" : dev.mcver.core.Compat.sessionUuid();
-            token = s.getAccessToken();
+            token = dev.mcver.core.Compat.sessionToken();
         }
 
         Thread t = new Thread(() -> {
@@ -481,8 +480,8 @@ public class LaunchPage extends Page {
                 Launcher.Plan plan = Launcher.plan(gameDir, id);
                 McVerMod.LOGGER.info("mcver: 启动计划 runDir={} 隔离={}", plan.runDir,
                         Launcher.isIsolated(gameDir, id));
-                if (!Config.jvmArgs.isBlank()) plan.jvm.addAll(Config.splitArgs(Config.jvmArgs));
-                if (!Config.gameArgs.isBlank()) plan.game.addAll(Config.splitArgs(Config.gameArgs));
+                if (!Config.jvmArgs.trim().isEmpty()) plan.jvm.addAll(Config.splitArgs(Config.jvmArgs));
+                if (!Config.gameArgs.trim().isEmpty()) plan.game.addAll(Config.splitArgs(Config.gameArgs));
                 if (Config.fullscreen) {
                     plan.game.add("--fullscreen");
                 } else {
@@ -510,8 +509,8 @@ public class LaunchPage extends Page {
                 } else {
                     Launcher.Running r = Launcher.launch(plan, player, uuid, token, mem);
                     running = r;
-                    String note = r.javaNote == null || r.javaNote.isBlank() ? "" : "  (" + r.javaNote + ")";
-                    msg = "已启动 " + id + "  pid=" + r.process.pid() + note;
+                    String note = r.javaNote == null || r.javaNote.trim().isEmpty() ? "" : "  (" + r.javaNote + ")";
+                    msg = "已启动 " + id + "  pid=" + dev.mcver.core.Jdk.pid(r.process) + note;
                     color = MainScreen.C_OK;
                     ok = true;
                     McVerMod.LOGGER.info("mcver: 已启动 {}  java={}  log={}", id, r.java, r.logFile);

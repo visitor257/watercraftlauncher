@@ -1351,3 +1351,41 @@ slf4j 没了（这年代用 log4j2）、`addDrawableChild` → `addChild`、`cle
   Java 8 兼容这一刀（~117 处）现在是 1.16.5 和 1.12.2 的共同前置，值得单独当一件事做，而不是顺手。
 
 七目标像素验证：15092 / 15092 / 15061 / 15349 / 15357 / 15357 / 19754，中心全 `C6C6C6`。
+
+## 三十五、2026-10-26 13:20：Java 8 源码兼容（用户选了「做」）
+
+用户对上一轮留的选择题回答「1」= 做 Java 8 源码兼容。这是本工程目前为止**改动面最大**的一次重构：
+主源码整体降到 Java 8 语言级，七个 target 共用一份、没有分叉。
+
+### 改了什么
+- 新增 `core/Jdk`：`writeString/writeAppend/readString/readAll/readAllText/pid/currentExe/isBlank/urlEncode/emptyList/emptyMap`。
+  把 JDK 9+ 的便捷 API 全部收口。
+- 9 个 record → final class（字段 + 同名无参方法 + equals/hashCode/toString），调用点零改动。
+- 14 个箭头 switch → 经典 switch / if 链；8 个 switch 表达式改成先赋值再 return。
+- **`java.net.http.HttpClient` 全部换成 `Net`**（HttpURLConnection），Auth 的 POST 也搬过去
+  （`Net.postForm/postJson/getJson`）。
+- 修掉 `readAllBytes`、`Path.of`、`Process#pid()`、`ProcessHandle`、`URLEncoder(Charset)`、
+  `Matcher.appendReplacement(StringBuilder)`、`Optional.isEmpty`、文本块。
+
+### 验证
+| 层次 | 证据 |
+|---|---|
+| 字节码 | mc1.16.5 = 52（Java 8）；1.17.1 = 60；1.18.2/1.19.4/1.20.1 = 61；1.21.x = 65 |
+| 真机 | 1.16.5 + jre-1.8 → 无 HARD_DEP，到 `Setting user`，物品注册 / screen=MAIN 正常 |
+| 像素 | 1.16.5 Java 8 跑出来 19754 / 中心 C6C6C6 / children 17，**和 Java 17 那轮数字一致** |
+| 七目标 | 15092 / 15092 / 15061 / 15349 / 15357 / 15357 / 19754 全绿 |
+| 安装链 | 新 `Net` 装 1.20.1+Fabric 一遍过（manifest→66 库→3598 资源→loader→改名→隔离）|
+| HTTP 往返 | 本地回环服务验 postForm/postJson/getJson：方法/Content-Type/Bearer/body 全对 |
+
+### 教训
+1. **record 改 class 时，访问器方法不能省**：原代码里 `found.exe` 和 `found.exe()` 两种写法混用，
+   生成的类必须**同时**提供 public final 字段和同名方法，否则要改一大堆调用点。
+2. **局部 record 不能加 static**：`JavaRuntime.Job` 在方法体里，加 static 直接编不过。
+3. **脚本批量改语法要防两个坑**：吃掉行尾 `\n` 会让下一行匹配不到（用 lookahead）；
+   CRLF/LF 不统一会让 `\{\n` 一个都匹配不上。
+4. **重构 HTTP 层之后必须跑一遍安装链路**：编译通过 ≠ 能下载。这次靠 smoke 安装 + 本地回环往返兜住了。
+5. `--release 8` 报 `target value 8 is obsolete` 是正常警告，不是错误。
+
+### 遗留
+- 48 组合的安装矩阵是这轮重构之前跑的。安装链路的**主路径**已用 smoke 验过，
+  但没重跑全矩阵 —— 如果之后发现某个加载器装的路径有 HTTP 相关怪问题，先怀疑这次重构。

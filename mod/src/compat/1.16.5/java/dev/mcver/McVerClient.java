@@ -93,7 +93,7 @@ public class McVerClient implements ClientModInitializer {
     static void openMain() {
         MinecraftClient mc = MinecraftClient.getInstance();
         UiState.dir();
-        if (!Config.lastDir.isBlank()) {
+        if (!Config.lastDir.trim().isEmpty()) {
             try {
                 java.nio.file.Path p = java.nio.file.Paths.get(Config.lastDir);
                 if (java.nio.file.Files.isDirectory(p)) UiState.setDir(p);

@@ -61,7 +61,7 @@ public final class LoaderSupport {
 
     public static Verdict check(LoaderInstaller.Kind kind, String mc) {
         if (kind == null || kind == LoaderInstaller.Kind.NONE) return Verdict.OK;
-        if (mc == null || mc.isBlank()) return Verdict.MAYBE;
+        if (mc == null || mc.trim().isEmpty()) return Verdict.MAYBE;
 
         boolean release = isRelease(mc);
         switch (kind) {

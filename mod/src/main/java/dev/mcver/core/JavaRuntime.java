@@ -57,7 +57,7 @@ public final class JavaRuntime {
         if (local != null) return local;
 
         // 2) 没有 → 下官方运行时
-        String comp = (component == null || component.isBlank()) ? guessComponent(needMajor) : component;
+        String comp = (component == null || component.trim().isEmpty()) ? guessComponent(needMajor) : component;
         try {
             Path exe = install(gameDir, comp, needMajor, out);
             if (exe != null) {
@@ -73,14 +73,14 @@ public final class JavaRuntime {
 
     /** 只有 component 缺失时才会用到；老版本 manifest 不给这个字段。 */
     static String guessComponent(int major) {
-        return switch (major) {
-            case 8 -> "jre-legacy";
-            case 16 -> "java-runtime-alpha";
-            case 17 -> "java-runtime-beta";
-            case 21 -> "java-runtime-delta";
-            case 25 -> "java-runtime-epsilon";
-            default -> "java-runtime-gamma";
-        };
+        switch (major) {
+            case 8: return "jre-legacy";
+            case 16: return "java-runtime-alpha";
+            case 17: return "java-runtime-beta";
+            case 21: return "java-runtime-delta";
+            case 25: return "java-runtime-epsilon";
+            default: return "java-runtime-gamma";
+        }
     }
 
     /** 平台键：跟 all.json 里的键名一致。 */
@@ -129,8 +129,8 @@ public final class JavaRuntime {
 
         // 结构是 [ 平台 ][ 组件 ] = [ { manifest:{url}, version:{name} }, ... ]
         List<Object> versions = null;
-        if (compNode instanceof List<?> l) {
-            versions = Json.arr(l);
+        if (compNode instanceof List<?>) {
+            versions = Json.arr(compNode);
         } else {
             Map<String, Object> m = Json.obj(compNode);
             if (m != null && !m.isEmpty()) versions = Json.arr(m.values().iterator().next());
@@ -148,7 +148,49 @@ public final class JavaRuntime {
         if (files == null) throw new IOException("manifest 里没有 files");
 
         // 只认 type=file 的，先把目录建好、下载任务列出来
-        record Job(String url, Path dst, boolean exec) { }
+        // 局部类（原 record 就写在方法里面）——局部类不能带 static，Java 8 也一样
+        final class Job {
+
+        // —— 原来是 record，为了 Java 8 兼容改写成普通类；字段名/方法名跟 record 一致，
+        //    所以 found.exe 和 found.exe() 两种写法都还能用。
+        public final String url;
+        public final Path dst;
+        public final boolean exec;
+
+        public Job(String url, Path dst, boolean exec) {
+            this.url = url;
+            this.dst = dst;
+            this.exec = exec;
+        }
+
+        public String url() { return url; }
+        public Path dst() { return dst; }
+        public boolean exec() { return exec; }
+
+        @Override
+        public boolean equals(Object o) {
+            if (this == o) return true;
+            if (!(o instanceof Job)) return false;
+            Job that = (Job) o;
+            return true
+                && java.util.Objects.equals(url, that.url)
+                && java.util.Objects.equals(dst, that.dst)
+                && exec == that.exec;
+        }
+
+        @Override
+        public int hashCode() {
+            return java.util.Objects.hash(
+                java.util.Objects.hashCode(url),
+                java.util.Objects.hashCode(dst),
+                exec);
+        }
+
+        @Override
+        public String toString() {
+            return "Job[" + "url=" + url + ", " + "dst=" + dst + ", " + "exec=" + exec + "]";
+        }
+    }
         List<Job> jobs = new ArrayList<>();
         for (Map.Entry<String, Object> e : files.entrySet()) {
             String rel = e.getKey();
@@ -217,7 +259,7 @@ public final class JavaRuntime {
         List<Path> out = new ArrayList<>();
         Path rt = baseDir(gameDir);
         if (!Files.isDirectory(rt)) return out;
-        try (var w = Files.walk(rt, 8)) {
+        try (java.util.stream.Stream<java.nio.file.Path> w = Files.walk(rt, 8)) {
             String exe = exeName();
             w.filter(p -> p.getFileName() != null && p.getFileName().toString().equals(exe))
              .filter(Files::isRegularFile)

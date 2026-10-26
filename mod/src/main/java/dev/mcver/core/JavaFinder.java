@@ -24,10 +24,63 @@ import java.util.concurrent.TimeUnit;
  */
 public final class JavaFinder {
 
-    public record Found(Path exe, int major, String raw, boolean custom, String arch) {
+    public static final class Found {
+
+        // —— 原来是 record，为了 Java 8 兼容改写成普通类；字段名/方法名跟 record 一致，
+        //    所以 found.exe 和 found.exe() 两种写法都还能用。
+        public final Path exe;
+        public final int major;
+        public final String raw;
+        public final boolean custom;
+        public final String arch;
+
+        public Found(Path exe, int major, String raw, boolean custom, String arch) {
+            this.exe = exe;
+            this.major = major;
+            this.raw = raw;
+            this.custom = custom;
+            this.arch = arch;
+        }
+
+        public Path exe() { return exe; }
+        public int major() { return major; }
+        public String raw() { return raw; }
+        public boolean custom() { return custom; }
+        public String arch() { return arch; }
+
+        @Override
+        public boolean equals(Object o) {
+            if (this == o) return true;
+            if (!(o instanceof Found)) return false;
+            Found that = (Found) o;
+            return true
+                && java.util.Objects.equals(exe, that.exe)
+                && major == that.major
+                && java.util.Objects.equals(raw, that.raw)
+                && custom == that.custom
+                && java.util.Objects.equals(arch, that.arch);
+        }
+
+        @Override
+        public int hashCode() {
+            return java.util.Objects.hash(
+                java.util.Objects.hashCode(exe),
+                major,
+                java.util.Objects.hashCode(raw),
+                custom,
+                java.util.Objects.hashCode(arch));
+        }
+
+        @Override
+        public String toString() {
+            return "Found[" + "exe=" + exe + ", " + "major=" + major + ", " + "raw=" + raw + ", " + "custom=" + custom + ", " + "arch=" + arch + "]";
+        }
+
+        // —— 以下为原 record 里的自定义方法
+
         /** "Java 21 x86_64 · ...\bin\java.exe" */
         public String label() {
-            return "Java " + major + (arch == null || arch.isBlank() ? "" : " " + arch) + "  " + exe;
+            return "Java " + major + (arch == null || arch.trim().isEmpty() ? "" : " " + arch) + "  " + exe;
         }
     }
 
@@ -53,13 +106,13 @@ public final class JavaFinder {
         }
 
         // 2) 当前进程自己
-        ProcessHandle.current().info().command().ifPresent(c -> {
+        java.util.Optional.ofNullable(dev.mcver.core.Jdk.currentExe()).map(java.nio.file.Path::toString).ifPresent(c -> {
             try { candidates.add(Paths.get(c)); } catch (Exception ignored) { }
         });
 
         // 3) JAVA_HOME
         String jh = System.getenv("JAVA_HOME");
-        if (jh != null && !jh.isBlank()) {
+        if (jh != null && !jh.trim().isEmpty()) {
             try { candidates.add(Paths.get(jh, "bin", exe)); } catch (Exception ignored) { }
         }
 
@@ -103,7 +156,7 @@ public final class JavaFinder {
             Path root;
             try { root = Paths.get(r); } catch (Exception e) { continue; }
             if (!Files.isDirectory(root)) continue;
-            try (var ds = Files.list(root)) {
+            try (java.util.stream.Stream<java.nio.file.Path> ds = Files.list(root)) {
                 ds.filter(Files::isDirectory).forEach(d -> {
                     Path p = d.resolve("bin").resolve(exe);
                     if (Files.isRegularFile(p)) candidates.add(p);
@@ -120,7 +173,7 @@ public final class JavaFinder {
             Path pcl = Paths.get(appdata, "PCL", "config.json");
             if (Files.isRegularFile(pcl)) {
                 try {
-                    String txt = Files.readString(pcl, StandardCharsets.UTF_8);
+                    String txt = dev.mcver.core.Jdk.readString(pcl, StandardCharsets.UTF_8);
                     for (String s : txt.split("\"Folder\"")) {
                         int q1 = s.indexOf('"');
                         if (q1 < 0) continue;
@@ -186,16 +239,16 @@ public final class JavaFinder {
     /** 架构名字归一化：amd64/x86_64 → x86_64，i386/i686 → x86，aarch64 → arm64。 */
     static String normArch(String a) {
         String s = a == null ? "" : a.trim().toLowerCase(Locale.ROOT);
-        return switch (s) {
-            case "amd64", "x86_64", "x86-64" -> "x86_64";
-            case "x86", "i386", "i486", "i586", "i686" -> "x86";
-            case "aarch64", "arm64" -> "arm64";
-            default -> s;
-        };
+        if ("amd64".equals(s) || "x86_64".equals(s) || "x86-64".equals(s)) return "x86_64";
+        if ("x86".equals(s) || "i386".equals(s) || "i486".equals(s)
+                || "i586".equals(s) || "i686".equals(s)) return "x86";
+        if ("aarch64".equals(s) || "arm64".equals(s)) return "arm64";
+        return s;
     }
 
     static void scanRuntime(Path runtime, String exe, Set<Path> out) {
-        try (var ds = Files.walk(runtime, 6)) {
+        // Java 8 没有 var，也不支持 try-with-resources 的隐式 final 资源
+        try (java.util.stream.Stream<Path> ds = Files.walk(runtime, 6)) {
             ds.filter(p -> p.getFileName() != null && p.getFileName().toString().equals(exe))
               .filter(Files::isRegularFile)
               .forEach(out::add);
@@ -232,7 +285,7 @@ public final class JavaFinder {
     }
 
     static int majorOf(String v) {
-        if (v == null || v.isBlank()) return 0;
+        if (v == null || v.trim().isEmpty()) return 0;
         if (v.startsWith("1.")) {
             String[] p = v.split("\\.");
             return p.length > 1 ? parseInt(p[1]) : 0;
@@ -246,7 +299,43 @@ public final class JavaFinder {
     }
 
     /** 兜底用的探测结果。 */
-    record Probe(int major, String arch) { }
+    static final class Probe {
+
+        // —— 原来是 record，为了 Java 8 兼容改写成普通类；字段名/方法名跟 record 一致，
+        //    所以 found.exe 和 found.exe() 两种写法都还能用。
+        public final int major;
+        public final String arch;
+
+        public Probe(int major, String arch) {
+            this.major = major;
+            this.arch = arch;
+        }
+
+        public int major() { return major; }
+        public String arch() { return arch; }
+
+        @Override
+        public boolean equals(Object o) {
+            if (this == o) return true;
+            if (!(o instanceof Probe)) return false;
+            Probe that = (Probe) o;
+            return true
+                && major == that.major
+                && java.util.Objects.equals(arch, that.arch);
+        }
+
+        @Override
+        public int hashCode() {
+            return java.util.Objects.hash(
+                major,
+                java.util.Objects.hashCode(arch));
+        }
+
+        @Override
+        public String toString() {
+            return "Probe[" + "major=" + major + ", " + "arch=" + arch + "]";
+        }
+    }
 
     /**
      * 兜底：真跑一次 ``java -XshowSettings:properties -version``，
@@ -259,7 +348,7 @@ public final class JavaFinder {
                     "-XshowSettings:properties", "-version");
             pb.redirectErrorStream(true);
             Process p = pb.start();
-            String out = new String(p.getInputStream().readAllBytes(), StandardCharsets.UTF_8);
+            String out = dev.mcver.core.Jdk.readAllText(p.getInputStream());
             if (!p.waitFor(8, TimeUnit.SECONDS)) {
                 p.destroyForcibly();
                 return new Probe(0, "");
@@ -275,7 +364,7 @@ public final class JavaFinder {
                 }
             }
             if (major == 0) {
-                var m = java.util.regex.Pattern.compile("version \"([^\"]+)\"").matcher(out);
+                java.util.regex.Matcher m = java.util.regex.Pattern.compile("version \"([^\"]+)\"").matcher(out);
                 if (m.find()) major = majorOf(m.group(1));
             }
             return new Probe(major, arch);

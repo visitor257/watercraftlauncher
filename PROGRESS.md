@@ -298,3 +298,62 @@ HARD_DEP_INCOMPATIBLE_PRESELECTED ... {depends java @ [>=17]} 挡掉；钉到 Ja
 | 15092 | 15092 | 15061 | 15349 | 15357 | 15357 | 19754 |
 
 中心点全是 C6C6C6，children 全是 17。（1.16.5 命中更多是因为它的原版背景更亮，面板像素占比更高。）
+
+## 14. 2026-10-26：Java 8 源码兼容做完了 —— 1.16.5 真的能在 Java 8 上跑
+
+上一节留的选择题（做 Java 8 兼容 / 维持 Java 17）选了**做**。理由：1.12.2 反正躲不过 Java 8，
+这笔账迟早要付。做完之后主源码整体降到 Java 8 语言级，所有 target 共用同一份，没有任何分叉。
+
+### 实际工作量（比预估的 117 处多得多）
+
+| 类别 | 处数 | 怎么处理 |
+|---|---|---|
+| `.isBlank()`（Java 11）| 62 | → `.trim().isEmpty()`，脚本替换 |
+| 箭头 switch（Java 14）| 69 行 / 14 个 switch | 手工 + 脚本改写；其中 8 个是 **switch 表达式**，要改成 if 链或经典 switch + return |
+| `var`（Java 10）| 37 | 逐个写具体类型（JDK 类型写全限定名，省得加 import）|
+| `Files.writeString` / `readString`（11）| 23 | → `core/Jdk` 垫片 |
+| `record`（Java 16）| 9 | → final class，**保留同名无参方法**，调用点零改动 |
+| `List.of()` / `Map.of()`（9）| 16 | → `Jdk.emptyList()/emptyMap()` |
+| `Stream#toList()`（16）| 6 | → `.collect(Collectors.toList())` |
+| 模式匹配 `instanceof`（16）| 6 | → 显式转型 |
+| 文本块（15）| 2 | → 字符串拼接 |
+| **`java.net.http.HttpClient`（11）** | 6 文件 | **全部换成已有的 `Net`（HttpURLConnection）** |
+| `Process#pid()` / `ProcessHandle`（9）| 5 | `Jdk.pid()`（反射读字段）/ `Jdk.currentExe()`（`java.home` 拼）|
+| `InputStream#readAllBytes`（9）| 4 | `Jdk.readAll` / `Jdk.readAllText` |
+| `URLEncoder.encode(s, Charset)`（10）| 2 | `Jdk.urlEncode`（Java 8 那个重载会抛受检异常）|
+| `Path.of`（11）| 2 | `Paths::get` |
+| `Matcher.appendReplacement(StringBuilder,..)`（9）| 1 | 换 `StringBuffer` |
+| `Optional.isEmpty`（11）| 1 | `!…isPresent()` |
+
+### 三个真正花了时间的地方（不是机械替换能解决的）
+1. **switch 表达式**：`return switch (x) { case A -> … }` 在 Java 8 里没有对应语法，
+   必须改成 if 链或「经典 switch + 给局部变量赋值 + return」。共 8 处。
+2. **`java.net.http`**：整个包是 Java 11 才有的，而 HTTP 散在 6 个文件里。
+   干脆全收口到 `Net`（本来就是 HttpURLConnection，注释里还写着「HttpClient 在游戏 JVM 会卡 7 分钟」）。
+   Auth 的 POST 也一起搬过去了：`Net.postForm / postJson / getJson`。
+3. **record → class 时不能只换字段**：`LoaderVersions.Lv`、`Sources.Src` 这些都有自定义方法，
+   而且原代码里 `found.exe` 和 `found.exe()` 两种写法都有 → 生成的类**同时**给 public final 字段
+   和同名无参方法，等于零调用点改动。equals/hashCode/toString 也一并补上，语义跟 record 一致。
+
+### 踩到的坑
+- **局部 record 不能改成 `static` class**：`JavaRuntime.Job` 原本声明在方法体里，改写时加了 static 直接编不过。
+- **脚本替换箭头 switch 时把行尾 `\n` 一起吃掉**，紧挨着的下一行就匹配不到 —— 要用 lookahead `(?=\n)` 收尾。
+- **有的文件是 CRLF 有的是 LF**：不先统一，`\{\n` 一个都匹配不上（VersionsPage 就是这么漏的）。
+- **`--release 8` 的 `warning: target value 8 is obsolete`** 是正常的，不用管。
+
+### 验证（三层，缺一层都不算过）
+1. **字节码版本**（直接读 class 头）：mc1.16.5 = 52（Java 8）、1.17.1 = 60、1.18.2/1.19.4/1.20.1 = 61、1.21.1/1.21.4 = 65。
+2. **真机运行**：1.16.5 实例的 `javaVersion` 改回原版的 8，探针选到 `jre-1.8` →
+   日志里没有再出现 `HARD_DEP_INCOMPATIBLE_PRESELECTED`，一路到 `Setting user`，物品注册、`screen=MAIN` 都有。
+3. **界面像素**：真实窗口 `PrintWindow` 抓图，中心 `C6C6C6`、命中 19754、children 17 —— **和上一轮 Java 17 跑出来的数字一模一样**。
+4. 七个 target 的 `verify-gui.ps1` 全绿：15092 / 15092 / 15061 / 15349 / 15357 / 15357 / 19754。
+
+### HTTP 层回归（重构了就得验）
+- 装了一次 1.20.1 + Fabric（`smoke-j8`）：manifest → 版本 json → 66 个库 → 3598 个资源 → Fabric loader → 重命名 → 隔离，
+  全程走新的 `Net`，一遍过。
+- `Net.postForm/postJson/getJson` 用**本地回环服务**做真实往返（不碰外网）：方法、Content-Type、
+  `Authorization: Bearer`、body 长度全部对得上。
+
+### 结论
+`fabric.mod.json` 的 `depends java` 对 1.16.5 现在是 `>=1.8`；玩家拿默认的 Java 8 起游戏就能用。
+1.12.2 的最大一块前置也顺势清掉了。
