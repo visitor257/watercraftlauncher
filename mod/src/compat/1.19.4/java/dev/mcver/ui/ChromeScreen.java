@@ -1,0 +1,50 @@
+package dev.mcver.ui;
+
+import net.minecraft.client.gui.screen.Screen;
+import net.minecraft.client.util.math.MatrixStack;
+import net.minecraft.text.Text;
+
+/**
+ * 1.19.4 版差异层（{@code src/main} 那份按 1.21.4 的签名写）。
+ *
+ * <p>1.19.4 的三个钩子都还是 MatrixStack 时代：
+ * <ul>
+ *   <li>{@code render(MatrixStack, int, int, float)}；</li>
+ *   <li>{@code renderBackground(MatrixStack)} 只有 matrices 一个参数
+ *       （1.20 才改成 DrawContext 版，1.21.2 又加了 mouseX/mouseY/delta）；</li>
+ *   <li>{@code mouseScrolled(double, double, double)} 只有 3 个参数（横向滚动 1.20.2 才加）。</li>
+ * </ul>
+ */
+public abstract class ChromeScreen extends Screen {
+
+    protected ChromeScreen(Text title) {
+        super(title);
+    }
+
+    /** 面板底、标题栏、导航分隔线，由子类画。 */
+    protected abstract void drawChrome(Ctx ctx);
+
+    /** 页内容。父类已经画完背景和控件，这里只补自己的东西。 */
+    protected abstract void renderContent(Ctx ctx, int mouseX, int mouseY, float delta);
+
+    /** 滚轮：先给当前页；没人接就交回父类。1.19.4 没有横向滚动，horizontal 恒为 0。 */
+    protected abstract boolean onScroll(double mouseX, double mouseY, double horizontal, double vertical);
+
+    @Override
+    public void render(MatrixStack matrices, int mouseX, int mouseY, float delta) {
+        super.render(matrices, mouseX, mouseY, delta);
+        renderContent(Ctx.of(matrices), mouseX, mouseY, delta);
+    }
+
+    @Override
+    public void renderBackground(MatrixStack matrices) {
+        super.renderBackground(matrices);
+        drawChrome(Ctx.of(matrices));
+    }
+
+    @Override
+    public boolean mouseScrolled(double mouseX, double mouseY, double vertical) {
+        if (onScroll(mouseX, mouseY, 0, vertical)) return true;
+        return super.mouseScrolled(mouseX, mouseY, vertical);
+    }
+}

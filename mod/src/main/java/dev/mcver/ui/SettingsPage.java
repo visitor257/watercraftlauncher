@@ -5,7 +5,6 @@ import dev.mcver.core.Config;
 import dev.mcver.core.Dirs;
 import dev.mcver.core.Sources;
 import net.minecraft.client.MinecraftClient;
-import net.minecraft.client.gui.DrawContext;
 import net.minecraft.client.gui.widget.ButtonWidget;
 import net.minecraft.client.gui.widget.TextFieldWidget;
 import net.minecraft.text.Text;
@@ -344,7 +343,7 @@ public class SettingsPage extends Page {
         t.start();
     }
 
-    private void renderSources(DrawContext ctx) {
+    private void renderSources(Ctx ctx) {
         int x = host.contentX();
         int w = host.contentW();
         text(ctx, "下载源", x + 50, host.contentY() + 5, MainScreen.C_TEXT);
@@ -358,7 +357,7 @@ public class SettingsPage extends Page {
     // ================================================================ render
 
     @Override
-    public void render(DrawContext ctx, int mouseX, int mouseY, float delta) {
+    public void render(Ctx ctx, int mouseX, int mouseY, float delta) {
         if (view == View.SOURCES) { renderSources(ctx); return; }
         int x = host.contentX();
         int w = host.contentW();

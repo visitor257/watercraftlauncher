@@ -5,7 +5,6 @@ import dev.mcver.core.Account;
 import dev.mcver.core.Auth;
 import dev.mcver.core.Config;
 import net.minecraft.client.MinecraftClient;
-import net.minecraft.client.gui.DrawContext;
 import net.minecraft.client.gui.widget.ButtonWidget;
 import net.minecraft.client.gui.widget.TextFieldWidget;
 import net.minecraft.text.Text;
@@ -246,7 +245,7 @@ public class AccountsPage extends Page {
     // ================================================================ render
 
     @Override
-    public void render(DrawContext ctx, int mouseX, int mouseY, float delta) {
+    public void render(Ctx ctx, int mouseX, int mouseY, float delta) {
         int x = host.contentX();
         int w = host.contentW();
 
@@ -290,7 +289,7 @@ public class AccountsPage extends Page {
     }
 
     /** 设备码画成一小块深色底板，方便照着输。 */
-    private void drawCode(DrawContext ctx, String code, int x, int y) {
+    private void drawCode(Ctx ctx, String code, int x, int y) {
         int w = this.tr().getWidth(code) + 10;
         ctx.fill(x, y, x + w, y + 12, 0xFF3A3A3A);
         ctx.fill(x, y, x + w, y + 1, 0xFF202020);

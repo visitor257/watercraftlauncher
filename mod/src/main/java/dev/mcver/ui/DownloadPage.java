@@ -13,7 +13,6 @@ import dev.mcver.core.Sources;
 import dev.mcver.core.VersionList;
 import dev.mcver.core.VersionMeta;
 import net.minecraft.client.MinecraftClient;
-import net.minecraft.client.gui.DrawContext;
 import net.minecraft.client.gui.widget.ButtonWidget;
 import net.minecraft.client.gui.widget.TextFieldWidget;
 import net.minecraft.text.Text;
@@ -589,14 +588,14 @@ public class DownloadPage extends Page {
     }
 
     @Override
-    public void render(DrawContext ctx, int mouseX, int mouseY, float delta) {        switch (view) {
+    public void render(Ctx ctx, int mouseX, int mouseY, float delta) {        switch (view) {
             case LIST -> renderList(ctx);
             case DETAIL -> renderDetail(ctx);
             case PROGRESS -> renderProgress(ctx);
         }
     }
 
-    private void renderList(DrawContext ctx) {
+    private void renderList(Ctx ctx) {
         int x = host.contentX();
         int w = host.contentW();
 
@@ -612,7 +611,7 @@ public class DownloadPage extends Page {
                 MainScreen.C_FAINT);
     }
 
-    private void renderDetail(DrawContext ctx) {
+    private void renderDetail(Ctx ctx) {
         int x = host.contentX();
         int w = host.contentW();
 
@@ -656,7 +655,7 @@ public class DownloadPage extends Page {
         }
     }
 
-    private void renderProgress(DrawContext ctx) {
+    private void renderProgress(Ctx ctx) {
         InstallJob job = Jobs.install();
         int x = host.contentX();
         int w = host.contentW();

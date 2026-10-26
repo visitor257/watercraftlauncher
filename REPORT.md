@@ -1176,3 +1176,57 @@ BMCLAPI 302 → `mirrors.cernet.edu.cn` → `cernet.mirrors.ustc.edu.cn` 最后�
 - 另外做了一次独立审计：47 个带加载器的组合，版本 json 主类**全部**是加载器类
   （KnotClient / BootstrapLauncher / ForgeBootstrap / modlauncher / launchwrapper），没有一个是原版 Main。
 - 教训写进 PROGRESS §3 与 VERIFY §2.1：**只看 `Setting user` 不足以判定启动成功**。
+
+## 三十、2026-10-26 11:05–11:45：1.19.4 target —— 被 DrawContext 拦住的不是三条街，是一条河
+
+用户说「26.x 可以先不管」，于是继续 P2 的下一个目标：1.19.4。
+
+### 30.1 硬编译：37 个错误，同一个原因
+
+按老规矩先直接编译（不加 compat），让编译器说话。37 个错误全部指向
+`net.minecraft.client.gui.DrawContext` 找不到符号 —— 这个类是 **1.20 才引入的**，
+1.19.4 及更早的渲染是 `MatrixStack` + `VertexConsumerProvider`。
+
+也就是说 1.17~1.19 整条线都不是「改两个签名」的量级，渲染层要换一套。
+之前 PLAN 里估的「1.19.4 compat ≤ 3 个文件」是错的，得改。
+
+### 30.2 做法：把三个绘制原语收口到 `ui/Ctx`
+
+先数了一下 UI 代码到底用了哪些 DrawContext 方法：`fill` 25 处、`drawText` 6 处、`drawItem` 3 处，
+就这三个。于是新增 `dev.mcver.ui.Ctx`：
+
+- 主源码（1.20+）：字段就是 `DrawContext`，三个方法直通；
+- `src/compat/1.19.4`：字段是 `MatrixStack`，
+  `fill` → `DrawableHelper.fill`、`drawText` → `TextRenderer.draw`（收的是 **Matrix4f**，
+  要 `matrices.peek().getPositionMatrix()`）、`drawItem` → `ItemRenderer.renderInGui`。
+
+同时把 `render` / `renderBackground` 两个 override 从 `MainScreen` 上提到 `ChromeScreen`：
+子类只实现 `drawChrome(Ctx)` 和 `renderContent(Ctx, ...)`，不再出现 MC 的版本类型。
+这一步是关键 —— 否则 MatrixStack 进来，300 行的 MainScreen 每个旧 target 都要复制一份。
+
+页面文件（7 个）只是 `DrawContext ctx` → `Ctx ctx` + 删 import，机械替换。
+
+1.19.4 三个钩子的真实签名（用 javap 对着 remap 后的 jar 确认，不靠记忆）：
+- `render(MatrixStack, int, int, float)`
+- `renderBackground(MatrixStack)` —— **只有 1 个参数**（1.20 是 DrawContext 版，1.21.2 又加 mouseX/mouseY/delta）
+- `mouseScrolled(double, double, double)`
+
+另外 compat 里补了 `McVerMod`（`new Identifier` + 无 `registryKey`）、`McVerClient`
+（`TypedActionResult<ItemStack>`）、`data/mcver/recipes/download_recipe.json`（复数目录）。
+
+### 30.3 顺手把探针升级成能验界面
+
+`ProbeLaunch` 之前到 `Setting user` 就 kill 进程，界面根本没机会验证。加了可选第 4 个参数 `waitFor`：
+到了 Setting user 之后继续等日志里出现指定标记。`MainScreen` 在 `drawChrome` 和首帧
+`renderContent` 各记一条一次性日志（`screen=MAIN chrome 已绘制` / `首帧渲染完成`），
+`debugDump` 也顺便写进游戏日志（以前只写 mcver-debug.txt）。
+
+### 30.4 结果
+
+- 四个 target 全绿：1.19.4 / 1.20.1 / 1.21.1 / 1.21.4，各约 247 KB，class 版本 61/61/65/65。
+- 1.19.4 运行证据：`Loading Minecraft 1.19.4 with Fabric Loader 0.20.1`、`- mcver 1.0.0`、
+  `物品已注册`、`客户端初始化完成`、`screen=MAIN` → `chrome 已绘制` → `首帧渲染完成`、
+  6 个页轮着切都正常、无异常堆栈。
+- **像素级确认没拿到**：同一套钩子跑 1.21.4 能截到面板（`C6C6C6` 命中 6 万+像素，中心点就是面板色），
+  但 1.19.4 / 1.20.1 在这台机器上截出来是启动画面（1.19.4 那块红橙 splash），说明是无头环境的问题，
+  不是代码 —— 跟上一轮 1.20.1「卡在 atlas 之后」是同一个坑。界面最终确认留给实机。

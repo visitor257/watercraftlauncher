@@ -8,7 +8,6 @@ import dev.mcver.core.Dirs;
 import dev.mcver.core.JavaFinder;
 import dev.mcver.core.Launcher;
 import net.minecraft.client.MinecraftClient;
-import net.minecraft.client.gui.DrawContext;
 import net.minecraft.client.gui.widget.ButtonWidget;
 import net.minecraft.client.gui.widget.TextFieldWidget;
 import net.minecraft.text.Text;
@@ -555,12 +554,12 @@ public class LaunchPage extends Page {
     // ================================================================ render
 
     @Override
-    public void render(DrawContext ctx, int mouseX, int mouseY, float delta) {
+    public void render(Ctx ctx, int mouseX, int mouseY, float delta) {
         if (view == View.DIRS) { renderDirs(ctx); return; }
         renderMain(ctx);
     }
 
-    private void renderMain(DrawContext ctx) {
+    private void renderMain(Ctx ctx) {
         int x = host.contentX();
         int w = host.contentW();
 
@@ -603,7 +602,7 @@ public class LaunchPage extends Page {
         return "";
     }
 
-    private void renderDirs(DrawContext ctx) {
+    private void renderDirs(Ctx ctx) {
         int x = host.contentX();
         int w = host.contentW();
 

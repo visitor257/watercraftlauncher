@@ -4,7 +4,6 @@ import dev.mcver.core.Config;
 import dev.mcver.core.Dirs;
 import dev.mcver.core.Jobs;
 import net.minecraft.client.MinecraftClient;
-import net.minecraft.client.gui.DrawContext;
 import net.minecraft.client.gui.screen.Screen;
 import net.minecraft.client.gui.widget.ButtonWidget;
 import net.minecraft.client.gui.widget.ClickableWidget;
@@ -173,6 +172,8 @@ public class MainScreen extends ChromeScreen {
     }
 
     private int tickCount;
+    private boolean chromeLogged;
+    private boolean contentLogged;
 
     /** 滚轮转给当前页（ChromeScreen 屏蔽了 1.20.1 / 1.21 的签名差异）。 */
     @Override
@@ -193,15 +194,22 @@ public class MainScreen extends ChromeScreen {
 
     /** 面板底 + 标题栏 + 导航分隔线（ChromeScreen 负责在正确的时机调它）。 */
     @Override
-    protected void drawChrome(DrawContext ctx) {
+    protected void drawChrome(Ctx ctx) {
+        if (!chromeLogged) {
+            chromeLogged = true;
+            dev.mcver.McVerMod.LOGGER.info("mcver: screen=MAIN chrome 已绘制");
+        }
         drawPanel(ctx);
         drawHeader(ctx);
         drawNavDivider(ctx);
     }
 
     @Override
-    public void render(DrawContext ctx, int mouseX, int mouseY, float delta) {
-        super.render(ctx, mouseX, mouseY, delta);
+    protected void renderContent(Ctx ctx, int mouseX, int mouseY, float delta) {
+        if (!contentLogged) {
+            contentLogged = true;
+            dev.mcver.McVerMod.LOGGER.info("mcver: screen=MAIN 首帧渲染完成");
+        }
         pages.get(active).render(ctx, mouseX, mouseY, delta);
         // 自检：MCVER_ICON=1 → 右下角画一下物品图标，用来确认贴图不是紫黑错误块
         if (System.getenv("MCVER_ICON") != null) {
@@ -215,7 +223,7 @@ public class MainScreen extends ChromeScreen {
         }
     }
 
-    private void drawPanel(DrawContext ctx) {
+    private void drawPanel(Ctx ctx) {
         int x = px(), y = py(), w = pw(), h = ph();
         ctx.fill(x + 3, y + 3, x + w + 3, y + h + 3, 0x50000000);
         ctx.fill(x, y, x + w, y + h, 0xFF000000);
@@ -226,7 +234,7 @@ public class MainScreen extends ChromeScreen {
         ctx.fill(x + w - 2, y + 1, x + w - 1, y + h - 1, 0xFF555555);
     }
 
-    private void drawHeader(DrawContext ctx) {
+    private void drawHeader(Ctx ctx) {
         int x = px(), y = py(), w = pw();
         String title = "Water Craft Launcher";
 
@@ -256,7 +264,7 @@ public class MainScreen extends ChromeScreen {
         ctx.fill(x + PAD, y + HEADER_H - 4, x + w - PAD, y + HEADER_H - 3, 0xFFFFFFFF);
     }
 
-    private void drawNavDivider(DrawContext ctx) {
+    private void drawNavDivider(Ctx ctx) {
         int x = px() + PAD + NAV_W + 2;
         int y0 = contentY() + 2, y1 = contentBottom();
         ctx.fill(x, y0, x + 1, y1, 0xFF8B8B8B);
@@ -265,11 +273,11 @@ public class MainScreen extends ChromeScreen {
 
     // ---- 文字（无阴影）
 
-    private void drawText(DrawContext ctx, String s, int x, int y, int color) {
+    private void drawText(Ctx ctx, String s, int x, int y, int color) {
         ctx.drawText(this.textRenderer, Text.literal(s), x, y, color, false);
     }
 
-    private void rightAlignedText(DrawContext ctx, String s, int rx, int y, int color) {
+    private void rightAlignedText(Ctx ctx, String s, int rx, int y, int color) {
         ctx.drawText(this.textRenderer, Text.literal(s), rx - this.textRenderer.getWidth(s), y, color, false);
     }
 
@@ -292,6 +300,8 @@ public class MainScreen extends ChromeScreen {
             Files.writeString(Paths.get("mcver-debug.txt").toAbsolutePath(), line,
                     StandardCharsets.UTF_8,
                     StandardOpenOption.CREATE, StandardOpenOption.APPEND);
+            // 同时进游戏日志：无头验证（ProbeLaunch 的 waitFor=screen=MAIN）只看得到日志
+            dev.mcver.McVerMod.LOGGER.info("mcver: {}", line.trim());
         } catch (Exception ignored) { }
     }
 

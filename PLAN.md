@@ -52,7 +52,8 @@
 | 1.21.4 | `watercraftlauncher-fabric-1.0.0-mc1.21.4.jar` | ✅ 主 target |
 | 1.21.1 | `watercraftlauncher-fabric-1.0.0-mc1.21.1.jar` | ✅ 覆盖 2 个文件即通 |
 | 1.20.1 | `watercraftlauncher-fabric-1.0.0-mc1.20.1.jar` | ✅ 2026-10-26，compat 3 文件 + 1 资源 + `ChromeScreen` |
-| 1.19.4 及更早 | — | ❌ 未做 |
+| 1.19.4 | `watercraftlauncher-fabric-1.0.0-mc1.19.4.jar` | ✅ 2026-10-26，新增 `ui/Ctx` 渲染适配层（1.19.4 没有 DrawContext）|
+| 1.18.2 / 1.17.1 … | — | 同一套 `Ctx` 适配层可直接铺（待做）|
 
 ---
 
@@ -140,15 +141,20 @@ Fabric   23w13a_or_b（快照验证）
 - 覆盖 1.20.x / 1.21.x 所有正式版的安装路径（自动化跑一遍，记录失败点）；
 - 下载页对「不存在组合」给准确提示（已做，需回归）。
 
-### P2 — 老版本 target（1.20.1 ✅，其余 3~5 人日，逐步）
+### P2 — 老版本 target（1.20.1 ✅ / 1.19.4 ✅，其余 3~5 人日，逐步）
 
-顺序按用户价值：**1.20.1（已完成）** → 1.19.4 → 1.18.2 → 1.16.5 → 1.12.2。
+顺序按用户价值：**1.20.1（已完成）→ 1.19.4（已完成）** → 1.18.2 → 1.16.5 → 1.12.2。
 
 每加一个 target 的流程：
 1. `scripts/build-all.ps1` 的 `$targets` 加一行（`mc` / `yarn` / `api` / `compat` / `java`）；
 2. 先直接编译，让编译器列出真实差异（不要猜）；
 3. 按报错写 `src/compat/<target>/java` 的整文件覆盖（资源差异放 `src/compat/<target>/resources`）；
-4. 启动验证（`ProbeLaunch` 或实机）。
+4. 启动验证（`ProbeLaunch`）；界面验证用 `ProbeLaunch <gameDir> <id> <秒> screen=MAIN`（第 4 个参数是要等的
+   日志标记，等到了才算界面真跑起来）。
+
+**1.19.4 的实际教训**：之前估「compat ≤ 3 文件」是错的 —— 1.19.4 没有 `DrawContext`，渲染要走 `MatrixStack`。
+已用 `ui/Ctx` 适配层拉平（fill / drawText / drawItem 三个原语），所以 1.18.2 / 1.17.1 现在应该只要
+1 个 `Ctx` + 1 个 `ChromeScreen` 就能过。
 
 **注意**：1.20.5 换组件系统（NBT → DataComponent）是最大断层；1.12.2 基本等于重写（GUI 体系、渲染、资源路径全变），需要单独评估。
 

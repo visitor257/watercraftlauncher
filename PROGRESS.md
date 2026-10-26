@@ -51,7 +51,7 @@ OptiFine 用错 Java），另外修掉 **3 个会造出假验证结果的工具�
 | 1.14.1/1.14.2/1.14.3、1.15/1.15.1、1.16.1~1.16.4、1.17 其余、1.20 其余… | 规则表判定可装，**未逐版本实测** |
 | 1.14.1/1.14.2/1.14.3、1.15/1.15.1、1.16.1~1.16.4、1.17 其余、1.20 其余… | 规则表判定可装，**未逐版本实测** |
 | 快照 / 愚人节版 | 未跑（Fabric/Quilt 规则表标 MAYBE）|
-| mod 本体 | 只出 1.21.4 / 1.21.1 两个包 |
+| mod 本体 | 只出 1.21.4 / 1.21.1 / 1.20.1 / 1.19.4 四个包 |
 
 > 若要把「全版本」这三个字用起来，得按加载器把 192 个组合各装一遍（估 10+ 小时机器时间）。
 > 现在的口径是**断层覆盖**，不是全量验证。
@@ -124,7 +124,7 @@ OptiFine 用错 Java），另外修掉 **3 个会造出假验证结果的工具�
 
 ### 6.2 已知不阻塞问题
 - `config/mcver.json` 明文存 refresh token（与 PCL/HMCL 一致，开源需在 README 提醒）。
-- mod 本体只有 1.21.4 / 1.21.1 / 1.20.1 三个 target。
+- mod 本体有 1.21.4 / 1.21.1 / 1.20.1 / 1.19.4 四个 target（1.19.4 起走 `ui/Ctx` 适配层，同一套源码可继续往 1.18.2 / 1.17.1 铺）。
 - 还没配 git remote（按用户要求：现在不上 GitHub）。
 
 ---
@@ -146,7 +146,7 @@ OptiFine 用错 Java），另外修掉 **3 个会造出假验证结果的工具�
 2. P1 全量扫（10+ 小时机器时间）要不要做，还是维持「断层覆盖 + 规则外推」？
 3. 1.19.4 及更老的 mod target 是否接着推（1.20.1 已通，按预估每个 3~5 个文件）？
 
-## 9. 2026-10-26：mod 本体 1.20.1 target 已通
+## 9. 2026-10-26：mod 本体 1.20.1 / 1.19.4 target 已通
 
 - 做法：单源码 + compat（`src/compat/1.20.1/`），**没有复制工程**。
 - 编译器判出来的真实差异只有 4 处 API + 1 处包名 + 1 处资源目录 + Java 版本：
@@ -159,4 +159,31 @@ OptiFine 用错 Java），另外修掉 **3 个会造出假验证结果的工具�
 - 验证：`testgame/versions/V1.20.1-FABRIC` + Fabric API 0.92.2+1.20.1，生产代码 `Launcher` 起真进程 →
   `requiredJava=17`（自动选了 JDK 17）、`mcver: 物品已注册` / `客户端初始化完成`、无 Mixin 报错、到达 `Setting user`。
   **GUI 截图没拿到**（这台机器无头起游戏时卡在 atlas 创建后，与 mod 无关）→ 界面级验证留给实机。
-- 产物：`dist/watercraftlauncher-fabric-1.0.0-mc1.20.1.jar`（245,401 B，class 版本 61），三个 target 全绿。
+- 产物：`dist/watercraftlauncher-fabric-1.0.0-mc1.20.1.jar`（class 版本 61），三个 target 全绿。
+
+## 10. 2026-10-26：1.19.4 target —— 一条 `DrawContext` 引起的重构
+
+原来的预估（「compat ≤ 3 个文件」）**是错的**。硬编译一跑就 37 个错误，全是同一个原因：
+**1.19.4 根本没有 `net.minecraft.client.gui.DrawContext`**（1.20 才引入），渲染靠 `MatrixStack`。
+也就是说 1.17~1.19 整条线都要改渲染层，不是 1.20 那种「改两个签名」的量级。
+
+做了两件事：
+
+1. **新增 `ui/Ctx` 渲染适配层**。UI 代码其实只碰三个原语：`fill`（25 处）、`drawText`（6 处）、`drawItem`（3 处）。
+   把这三个收口到一个类里，页面代码就跟 MC 版本无关了：
+   - 主源码（1.20+）：薄包 `DrawContext`；
+   - `src/compat/1.19.4`：包 `MatrixStack`（`DrawableHelper.fill` / `TextRenderer.draw` 要 `Matrix4f` /
+     `ItemRenderer.renderInGui`），一并把 `ChromeScreen` 里三个钩子改成 `renderBackground(MatrixStack)`（**只有 1 个参数**，
+     跟 1.20 的 DrawContext 版、1.21.2 的 5 参数版都不一样）。
+2. **把 `render` / `renderBackground` 两个 override 从 MainScreen 上提到 ChromeScreen**，MainScreen 只实现
+   `drawChrome(Ctx)` 和 `renderContent(Ctx,…)` —— 否则 `MatrixStack` 这块会让 300 行的 MainScreen 每个旧 target 都得复制一份。
+
+顺带把探针升级成能验界面：`ProbeLaunch` 加了可选第 4 个参数 `waitFor`，到 `Setting user` 后继续等日志里出现指定标记；
+`MainScreen` 在 `drawChrome` / 首帧 `renderContent` 各记一条一次性日志（`screen=MAIN chrome 已绘制` / `首帧渲染完成`）。
+
+验证（`testgame/versions/V1.19.4-FABRIC` + Fabric API 0.87.2）：
+- `Loading Minecraft 1.19.4 with Fabric Loader 0.20.1`、`- mcver 1.0.0`、`物品已注册`、`客户端初始化完成`；
+- `screen=MAIN` → `chrome 已绘制` → `首帧渲染完成`，切 6 个页都正常，**无异常堆栈**；
+- **像素级确认没拿到**：这台机器上 1.19.4 / 1.20.1 无头起游戏都停在启动画面后（截出来是 1.19.4 那块红橙色 splash），
+  同一套钩子跑 1.21.4 能截到面板（`C6C6C6` 6 万+像素）—— 所以是环境限制，不是代码。界面最终确认留给实机。
+- 产物：`dist/watercraftlauncher-fabric-1.0.0-mc1.19.4.jar`（class 版本 61），**四个 target 全绿**（1.19.4 / 1.20.1 / 1.21.1 / 1.21.4）。

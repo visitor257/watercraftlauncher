@@ -2,7 +2,6 @@ package dev.mcver.ui;
 
 import net.minecraft.client.MinecraftClient;
 import net.minecraft.client.font.TextRenderer;
-import net.minecraft.client.gui.DrawContext;
 import net.minecraft.client.gui.widget.ClickableWidget;
 import net.minecraft.text.Text;
 
@@ -31,7 +30,7 @@ public abstract class Page {
         return host.add(w);
     }
 
-    public void render(DrawContext ctx, int mouseX, int mouseY, float delta) { }
+    public void render(Ctx ctx, int mouseX, int mouseY, float delta) { }
 
     /** 每 tick 一次（只有当前页会收到）；状态变了想刷按钮就在这里做。 */
     public void tick() { }
@@ -48,19 +47,19 @@ public abstract class Page {
         return MinecraftClient.getInstance().textRenderer;
     }
 
-    protected void text(DrawContext ctx, String s, int x, int y, int color) {
+    protected void text(Ctx ctx, String s, int x, int y, int color) {
         ctx.drawText(tr(), Text.literal(s), x, y, color, false);
     }
 
-    protected void text(DrawContext ctx, Text t, int x, int y, int color) {
+    protected void text(Ctx ctx, Text t, int x, int y, int color) {
         ctx.drawText(tr(), t, x, y, color, false);
     }
 
-    protected void centered(DrawContext ctx, String s, int cx, int y, int color) {
+    protected void centered(Ctx ctx, String s, int cx, int y, int color) {
         ctx.drawText(tr(), Text.literal(s), cx - tr().getWidth(s) / 2, y, color, false);
     }
 
-    protected void rightAligned(DrawContext ctx, String s, int rx, int y, int color) {
+    protected void rightAligned(Ctx ctx, String s, int rx, int y, int color) {
         ctx.drawText(tr(), Text.literal(s), rx - tr().getWidth(s), y, color, false);
     }
 
@@ -78,7 +77,7 @@ public abstract class Page {
     }
 
     /** 一行的灰条底，让列表和按钮区有分隔感。 */
-    protected void line(DrawContext ctx, int x, int y, int w) {
+    protected void line(Ctx ctx, int x, int y, int w) {
         ctx.fill(x, y, x + w, y + 1, 0xFF8B8B8B);
         ctx.fill(x, y + 1, x + w, y + 2, 0xFFFFFFFF);
     }

@@ -13,11 +13,15 @@ import java.util.List;
  * 无界面启动探针：只用 {@code Launcher}（生产代码）拼参数 + 起真进程，然后盯日志。
  *
  * <pre>
- * java -cp out dev.mcver.probe.ProbeLaunch &lt;gameDir&gt; &lt;versionId&gt; &lt;timeoutSec&gt;
+ * java -cp out dev.mcver.probe.ProbeLaunch &lt;gameDir&gt; &lt;versionId&gt; &lt;timeoutSec&gt; [waitFor]
  * </pre>
  *
  * 成功判据（与 PLAN 一致）：日志里出现 {@code Setting user}。
  * 离线账号的 401 / Realms 认证失败是正常的，不算失败。
+ *
+ * <p>可选的 {@code waitFor} 是「界面级」验证：到了 Setting user 不算完，
+ * 还得等日志里出现这个字串（比如 {@code screen=MAIN}）。用于确认 Screen 真能画出来，
+ * 而不是只证明进程没崩 —— 渲染层的版本差异（MatrixStack / DrawContext）只在这一步暴露。
  *
  * 退出码：0 = 到 Setting user；1 = 崩溃/超时；2 = 参数错。
  */
@@ -25,12 +29,13 @@ public final class ProbeLaunch {
 
     public static void main(String[] args) throws Exception {
         if (args.length < 3) {
-            System.err.println("用法: ProbeLaunch <gameDir> <versionId> <timeoutSec>");
+            System.err.println("用法: ProbeLaunch <gameDir> <versionId> <timeoutSec> [waitFor]");
             System.exit(2);
         }
         Path gameDir = Paths.get(args[0]).toAbsolutePath().normalize();
         String id = args[1];
         int timeout = Integer.parseInt(args[2]);
+        String waitFor = args.length > 3 && !args[3].isBlank() ? args[3] : null;
 
         Sources.setActive(Sources.BMCLAPI.label());
 
@@ -61,8 +66,7 @@ public final class ProbeLaunch {
                 if (s.contains("Setting user")) ok = true;
                 if (s.contains("Backend library:")) sawTitle = true;
             }
-            if (ok) break;
-            if (!r.process.isAlive()) {
+            if (ok) break;            if (!r.process.isAlive()) {
                 // 给它一点时间把日志冲刷完
                 Thread.sleep(1500);
                 List<String> tail = safeRead(r.logFile);
@@ -76,6 +80,8 @@ public final class ProbeLaunch {
 
         if (ok) {
             System.out.println("[probe] OK 到达 Setting user（Backend library: " + sawTitle + "）");
+            // 界面级：再等一会儿，看指定标记（Screen 真画出来 / 页切换 / 截图钩子）。
+            if (waitFor != null) ok = waitForMarker(r, waitFor, deadline);
         } else {
             System.out.println("[probe] TIMEOUT " + timeout + "s 内没看到 Setting user");
             printTail(safeRead(r.logFile), 40);
@@ -85,8 +91,31 @@ public final class ProbeLaunch {
         System.exit(ok ? 0 : 1);
     }
 
-    private static void kill(Launcher.Running r) {
-        try {
+    /** 等界面标记：主界面 init 后日志里会出现 {@code screen=MAIN}。 */
+    private static boolean waitForMarker(Launcher.Running r, String marker, long deadline) throws Exception {
+        while (System.currentTimeMillis() < deadline) {
+            Thread.sleep(1500);
+            for (String s : safeRead(r.logFile)) {
+                if (s.contains(marker)) {
+                    System.out.println("[probe] GUI OK 看到 " + marker);
+                    return true;
+                }
+            }
+            if (!r.process.isAlive()) {
+                Thread.sleep(1500);
+                List<String> tail = safeRead(r.logFile);
+                System.out.println("[probe] 进程已退出，代码 " + r.process.exitValue());
+                printTail(tail, 40);
+                System.out.println("[probe] ERROR 等界面标记时进程退出");
+                return false;
+            }
+        }
+        System.out.println("[probe] GUI TIMEOUT 没看到 " + marker);
+        printTail(safeRead(r.logFile), 20);
+        return false;
+    }
+
+    private static void kill(Launcher.Running r) {        try {
             r.process.descendants().forEach(ProcessHandle::destroyForcibly);
             r.process.destroyForcibly();
             r.process.waitFor();
