@@ -78,16 +78,15 @@ public abstract class ChromeScreen extends Screen {
 
     /**
      * 键盘：子类实现这个，不要直接 override {@code keyPressed}。
-     * 1.21.11 把签名换成了 {@code keyPressed(KeyInput)}，那是本层的事，不该漏到 UI 里。
+     *
+     * <p>本类 <b>故意不 override {@code keyPressed}</b>：它在 1.21.9 从
+     * {@code (int,int,int)} 换成了 {@code keyPressed(KeyInput)}，而一个 class 无法同时
+     * 满足两头。ESC 关闭在 1.21.x 里由 {@code Screen} 自己处理（会调到我们的 {@link #close()}），
+     * 所以不需要这个钩子。旧 target（1.16.5~1.20.1）各自在 compat 里 override 自己的签名，
+     * 再把三个 int 交给这个方法。
      */
     protected boolean keyPressedDefault(int keyCode, int scanCode, int modifiers) {
-        return super.keyPressed(keyCode, scanCode, modifiers);
-    }
-
-    /** 1.21.4 及更早：三个 int。1.21.11 在 compat 里整文件覆盖。 */
-    @Override
-    public boolean keyPressed(int keyCode, int scanCode, int modifiers) {
-        return keyPressedDefault(keyCode, scanCode, modifiers);
+        return false;
     }
 
     /**

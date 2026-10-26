@@ -10,10 +10,21 @@ base {
     archivesName = project.archives_base_name
 }
 
+// 「一个 jar 盖一整个大版本」：-Pwide_mc=1.21 表示产物名用 mc1.21、依赖写 >=1.21 且 <1.22。
+// 不在命令行直接传 ">=1.21 <1.22"：Windows 会把 `>` 当重定向（这个坑踩过好几次）。
+// 这种 target 按区间里**最新**的那个版本编译（1.21.11），
+// 新版本才有的 API（如 Item.Settings#registryKey）在旧版本上靠 NoSuchMethodError 退回来。
+def wideMc = (project.findProperty("wide_mc") ?: "").toString().trim()
+if (!wideMc.isEmpty()) {
+    def wp = wideMc.tokenize('.')
+    if (wp.size() < 2) throw new GradleException("wide_mc 至少要主.次，例：1.21")
+}
+
 // 产物文件名：watercraftlauncher-<loaders>-<version>-mc<minecraft>.jar
 // Gradle 默认会把 version 拼在最后，所以要直接指定 archiveFileName
 // 注意：sourcesJar / remapSourcesJar 是后面才创建的，必须用 lazy 配置
-def artifactName = "${project.archives_base_name}-${project.mod_loader}-${project.version}-mc${project.minecraft_version}"
+def mcLabel = wideMc.isEmpty() ? project.minecraft_version : wideMc
+def artifactName = "${project.archives_base_name}-${project.mod_loader}-${project.version}-mc${mcLabel}"
 
 tasks.matching { it.name == "jar" || it.name == "remapJar" }.configureEach {
     archiveFileName = "${artifactName}.jar"
@@ -67,7 +78,11 @@ def javaRelease = (project.findProperty("java_release") ?: "21").toString().trim
 // 这是故意的：相邻补丁版本可能又改了 API（1.21.2 就改了 UseItemCallback），宁可加载不上也别崩。
 def mcVerParts = project.minecraft_version.toString().trim().tokenize('.')
 def mcDep
-if (mcVerParts.size() >= 3) {
+if (!wideMc.isEmpty()) {
+    def wp = wideMc.tokenize('.')
+    def upper = "${wp[0]}.${(wp[1] as int) + 1}"
+    mcDep = ">=${wideMc} <${upper}"
+} else if (mcVerParts.size() >= 3) {
     def upper = "${mcVerParts[0]}.${mcVerParts[1]}.${(mcVerParts[2] as int) + 1}"
     mcDep = ">=${project.minecraft_version} <${upper}"
 } else {

@@ -12,10 +12,13 @@
 # 而且在 Java 8 上 loader 0.20.1 也跑得起 —— 所以不手动钉 17 就永远看不到界面。
 
 param(
-    [string[]]$Targets = @('1.21.11', '1.21.10', '1.21.9', '1.21.4', '1.21.1', '1.20.1', '1.19.4', '1.18.2', '1.17.1', '1.16.5'),
+    [string[]]$Targets = @('1.21', '1.21.1', '1.21.2', '1.21.3', '1.21.4', '1.21.5', '1.21.6', '1.21.7', '1.21.8', '1.21.9', '1.21.10', '1.21.11', '1.20.1', '1.19.4', '1.18.2', '1.17.1', '1.16.5'),
     [int]$WarmupSec = 40,
     [string]$JavaHome21 = 'D:\Program Files\Java\jdk-21.0.7'
 )
+
+# -File 模式下 "1.21,1.21.1" 会当成一个字符串传进来，这里自己拆开
+$Targets = @($Targets | ForEach-Object { $_ -split '[,\s]+' } | Where-Object { $_ -ne '' })
 
 $ErrorActionPreference = 'Stop'
 $root = Split-Path -Parent $PSScriptRoot
@@ -44,6 +47,12 @@ function Get-GameWindow {
 
 # 实例目录名默认是 V<mc>-FABRIC；1.17.1 是用我们自己安装器装的，目录名是 loader 版的
 $instanceOverride = @{
+    # 1.21 ~ 1.21.11 全部用 dist\...-mc1.21.jar 这一个 jar（见 Ensure-Mods 里按版本选 jar）
+    '1.21' = 'w121'
+    '1.21.2' = 'fabric-loader-0.20.1-1.21.2'
+    '1.21.3' = 'fabric-loader-0.20.1-1.21.3'
+    '1.21.6' = 'fabric-loader-0.20.1-1.21.6'
+    '1.21.7' = 'fabric-loader-0.20.1-1.21.7'
     '1.17.1' = 'fabric-loader-0.20.1-1.17.1'
     '1.21.11' = 'v12111'
     '1.21.10' = 'v12110'
@@ -52,6 +61,13 @@ $instanceOverride = @{
 
 # Fabric API 版本（下载到 testgame\.cache，缺什么补什么）
 $fabricApi = @{
+    '1.21.8'  = @{ v = '0.136.1+1.21.8';  url = '' }
+    '1.21.7'  = @{ v = '0.129.0+1.21.7';  url = '' }
+    '1.21.6'  = @{ v = '0.128.2+1.21.6';  url = '' }
+    '1.21.5'  = @{ v = '0.128.2+1.21.5';  url = '' }
+    '1.21.3'  = @{ v = '0.114.1+1.21.3';  url = '' }
+    '1.21.2'  = @{ v = '0.106.1+1.21.2';  url = '' }
+    '1.21'    = @{ v = '0.102.0+1.21';    url = '' }
     '1.21.11' = @{ v = '0.141.6+1.21.11'; url = '' }
     '1.21.10' = @{ v = '0.138.4+1.21.10'; url = '' }
     '1.21.9' = @{ v = '0.134.1+1.21.9'; url = '' }
@@ -76,7 +92,11 @@ function Resolve-FabricApiUrl([string]$ver) {
 # 自检钩子等不到界面 → 先把它关掉。注意：只改这一行，其它选项原样保留。
 function Disable-Onboarding([string]$id) {
     $opt = Join-Path $testgame "versions\$id\options.txt"
-    if (-not (Test-Path $opt)) { return }
+    if (-not (Test-Path $opt)) {
+        # 新装的实例没有 options.txt；直接写一行关掉引导屏，游戏会自己补默认值
+        [System.IO.File]::WriteAllLines($opt, @('onboardAccessibility:false'), (New-Object System.Text.UTF8Encoding($false)))
+        return
+    }
     $lines = Get-Content $opt
     $found = $false
     $out = foreach ($l in $lines) {
@@ -90,9 +110,16 @@ function Ensure-Mods([string]$id, [string]$v) {
     $mods = Join-Path $testgame "versions\$id\mods"
     New-Item -ItemType Directory -Force -Path $mods | Out-Null
 
-    $jar = Join-Path $root "dist\watercraftlauncher-fabric-1.0.0-mc$v.jar"
+    # 1.21 ~ 1.21.11 共用一个 jar（mc1.21.jar），其余 target 一个版本一个 jar
+    $jarVer = $v
+    if ($v -like '1.21*') { $jarVer = '1.21' }
+    $jar = Join-Path $root "dist\watercraftlauncher-fabric-1.0.0-mc$jarVer.jar"
     if (-not (Test-Path $jar)) { throw "没有构建产物 $jar" }
     Copy-Item $jar $mods -Force
+    # 清掉同 mod 的旧 jar，免得同一个 mod id 有两份
+    Get-ChildItem $mods -Filter 'watercraftlauncher-*.jar' -ErrorAction SilentlyContinue |
+        Where-Object { $_.Name -ne (Split-Path -Leaf $jar) } |
+        ForEach-Object { Remove-Item $_.FullName -Force; Write-Host "  清掉旧 jar $($_.Name)" }
 
     if (-not (Get-ChildItem $mods -Filter 'fabric-api-*.jar' -ErrorAction SilentlyContinue)) {
         $meta = $fabricApi[$v]
@@ -217,6 +244,10 @@ Write-Host ''
 $results | Format-Table -AutoSize
 # 注意：必须用 @() 包起来。单个对象时 .Count 是 $null，-gt 0 为假 → 会变成假通过（踩过）。
 $failed = @($results | Where-Object { -not $_.Ok })
+if ($results.Count -eq 0) {
+    Write-Host '一个 target 都没跑（全部跳过）——这不算通过。' -ForegroundColor Red
+    exit 1
+}
 if ($failed.Count -gt 0) {
     Write-Host ("界面验证失败：" + (($failed | ForEach-Object { $_.Version }) -join ', ')) -ForegroundColor Red
     exit 1

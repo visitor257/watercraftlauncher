@@ -31,18 +31,6 @@ public final class Compat {
         return uuid == null ? null : uuid.replace("-", "");
     }
 
-    /**
-     * 存一张截图（自检用）。1.16.5 的类叫 {@code ScreenshotUtils}，要自己传宽高，
-     * 消费者参数是 {@code Consumer<Text>}。
-     */
-    public static void saveScreenshot(String name) {
-        MinecraftClient mc = MinecraftClient.getInstance();
-        net.minecraft.client.util.ScreenshotUtils.saveScreenshot(
-                mc.runDirectory, name,
-                mc.getWindow().getFramebufferWidth(), mc.getWindow().getFramebufferHeight(),
-                mc.getFramebuffer(), t -> { });
-    }
-
     /** 会话里的玩家名（正版/离线都行）。 */
     public static String sessionName() {
         return MinecraftClient.getInstance().getSession().getUsername();

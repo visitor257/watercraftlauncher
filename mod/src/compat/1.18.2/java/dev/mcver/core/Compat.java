@@ -32,11 +32,6 @@ public final class Compat {
     }
 
     /** 存一张截图（自检用）。1.17+ 的类叫 ScreenshotRecorder，参数是 Framebuffer。 */
-    public static void saveScreenshot(String name) {
-        MinecraftClient mc = MinecraftClient.getInstance();
-        net.minecraft.client.util.ScreenshotRecorder.saveScreenshot(
-                mc.runDirectory, name, mc.getFramebuffer(), t -> { });
-    }
 
     /** 会话里的玩家名（正版/离线都行）。 */
     public static String sessionName() {

@@ -47,11 +47,4 @@ public final class Compat {
     public static String sessionToken() {
         return MinecraftClient.getInstance().getSession().getAccessToken();
     }
-
-    /** 存一张截图（自检用）。1.16.5 那边类名和参数都不一样，见 compat 那份。 */
-    public static void saveScreenshot(String name) {
-        MinecraftClient mc = MinecraftClient.getInstance();
-        net.minecraft.client.util.ScreenshotRecorder.saveScreenshot(
-                mc.runDirectory, name, mc.getFramebuffer(), t -> { });
-    }
 }

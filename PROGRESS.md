@@ -507,3 +507,100 @@ spike 里写了个覆盖这些点的类，在 **loom 1.11.8 + legacy-looming 1.1
 自检钩子不触发时，光看「没有 screen=MAIN」什么也判断不出来。加了一行 `mcver: cur=<类名>` 日志，
 每换一次屏幕打一次 —— 一跑就抓到 `class_8032` = 无障碍引导屏。
 **以后新 target 起不来界面，先打印 currentScreen 类名，别猜。**
+
+## 17. 2026-10-26 晚（21:00–23:0x）：一个 jar 盖住整个 1.21 系列（10 个 jar → 6 个）
+
+用户连着两句批评，第一句是对的，第二句是需求：
+
+1. 「你为什么一直在处理高版本？特别是 1.21.x 的」—— 认了。见上一节。
+2. 「1.21 怎么可能还会出新版本，最新都到 26.x 了。你就不能直接弄 1.21.x 的通用版本吗？」
+   —— 要求：**一个 jar 通吃 1.21 ~ 1.21.11**。
+
+### 先摸清断点（javap 对着 remap 后的 jar，不靠记忆）
+| API | 1.21 | 1.21.1 | 1.21.4 | 1.21.11 |
+|---|---|---|---|---|
+| `Screen.render(DrawContext,int,int,float)` | ✓ | ✓ | ✓ | ✓ |
+| `Screen.renderBackground(DrawContext,int,int,float)` | ✓ | ✓ | ✓ | ✓ |
+| `Element.mouseScrolled(double,double,double,double)` | ✓ | ✓ | ✓ | ✓ |
+| `Screen.shouldPause()` / `close()` | ✓ | ✓ | ✓ | ✓ |
+| `Screen.keyPressed(int,int,int)` | ✓ | ✓ | ✓ | ✗ `KeyInput` |
+| `Item.Settings.registryKey` | ✗ | ✗ | ✓ | ✓ |
+| `KeyBinding(...,String)` | ✓ | ✓ | ✓ | ✗ `Category` |
+| `saveScreenshot(File,Framebuffer,Consumer)` | ✓ | ✓ | ✓ | ✓（多 int 的那条是另一条重载） |
+| `TypedActionResult` | ✓ | ✓ | ✗ | ✗ |
+
+真正会断的只有 4 处，而且都能绕开：
+- `keyPressed` 变了 → **干脆不 override**。ESC 由 `Screen` 自己处理（会调到我们的 `close()`），
+  旧 target 各自在 compat 里 override 自己那版签名。
+- `saveScreenshot` 变了 → **删掉游戏内截图自检**（用户问「那是截给我看的吗？没必要」，
+  确实没必要：界面验收早就换成 `PrintWindow` 从真窗口外部抓，更可信）。这一个删除直接消掉一处断点。
+- `KeyBinding` / `UseItemCallback` 变了 → 右键和 M 键改成**每 tick 轮询**
+  （`options.useKey.wasPressed()` + `GLFW.glfwGetKey`），两者在整个系列都不变。
+- `registryKey` 1.21.2 才有 → 编译基准取**最新**的 1.21.11，旧版本靠 `NoSuchMethodError` 退回。
+
+### 撞到的两个真问题
+
+**① 已被 remap 的环境里，字符串反射查 MC 符号一律不通。**
+第一版把 `registryKey` 写成反射（`Class.forName("net.minecraft.registry.RegistryKey")`），
+一跑就崩：日志里是「该版本无 Item.Settings#registryKey，跳过」+ `NullPointerException: Item id not set`。
+根因：mod 在网络包里被 remap 成 intermediary 名，运行时那个类叫 `class_5321`，方法叫 `method_xxxxx`。
+**字符串里有的是 yarn 名，运行时一个都找不到。** 编译期引用（`RegistryKey.class`）才会被正确 remap。
+
+**② `DrawContext#drawText` 的返回类型在系列中间从 int 变成了 void。**
+两边 intermediary 名都是 `method_51439`，但描述符是 `...Z)I` 和 `...Z)V`。JVM 按描述符解析，
+所以按一端编出来的 jar 在另一端直接 `NoSuchMethodError`（实测在 1.21 上抓到这条）。
+同一个 class 文件无法同时引用两种返回类型 —— 于是在 `Ctx` 里改成**运行期按参数类型找方法**：
+遍历 `DrawContext.class.getDeclaredMethods()`，匹配 `(TextRenderer, Text, int, int, int, boolean)`，
+拿到 `MethodHandle` 再 `invoke`。**不写死方法名**，所以不受 remap 影响；找不到就退化用
+`drawTextWithShadow`（三个版本描述符都是 `(...)I`，稳定）。
+`fill(int×5,int)`、`drawItem(ItemStack,int,int)` 的 intermediary id 和描述符两端一致，不用管。
+
+### 结果
+`dist/` **10 → 6 个 jar**：`mc1.21`（盖 1.21~1.21.11 共 12 个版本）+ `mc1.20.1 / mc1.19.4 /
+mc1.18.2 / mc1.17.1 / mc1.16.5`。`src/compat/` 从 7 个目录降到 **5 个**（1.21.1 与 1.21.9 两个目录删掉）。
+
+真窗口像素验证（`verify-gui.ps1` 全量 17 个 target，一次跑完）：
+
+| 版本 | 面板像素 | 中心 | children |
+|---|---|---|---|
+| 1.21 | 15097 | C6C6C6 | 17 |
+| 1.21.1 | 15092 | C6C6C6 | 17 |
+| 1.21.2 | 15105 | C6C6C6 | 17 |
+| 1.21.3 | 15105 | C6C6C6 | 17 |
+| 1.21.4 | 15092 | C6C6C6 | 17 |
+| 1.21.5 | 15092 | C6C6C6 | 17 |
+| 1.21.6 | 15105 | C6C6C6 | 17 |
+| 1.21.7 | 15105 | C6C6C6 | 17 |
+| 1.21.8 | 15092 | C6C6C6 | 17 |
+| 1.21.9 | 15097 | C6C6C6 | 17 |
+| 1.21.10 | 15096 | C6C6C6 | 17 |
+| 1.21.11 | 15096 | C6C6C6 | 17 |
+| 1.20.1 / 1.19.4 / 1.18.2 / 1.17.1 / 1.16.5 | 15061 / 15349 / 15357 / 15357 / 19754 | 全 C6C6C6 | 全 17 |
+
+老 target 的数字和改造前**一模一样** → `Ctx` / `McVerClient` / `McVerMod` 的改动没有回归。
+
+### `build.gradle` 新增 `-Pwide_mc=1.21`
+依赖写成 `>=1.21 <1.22` 且产物名用 `mc1.21`。**不在命令行传 `">=1.21 <1.22"`**：
+Windows 会把 `>` 当重定向（这个坑踩过多次）。
+
+### 验证脚本又修了 4 个坑（都是「假通过 / 假失败」类）
+1. `powershell -File script.ps1 -Targets 1.21,1.21.1` —— `-File` 不做语法解析，
+   整个字符串当**一个** target 传进来 → 全部「跳过」，却仍打印「界面验证全部通过（0 个）」。
+   现在脚本自己按逗号拆，并且 **0 个用例直接 exit 1**。
+2. 新装的实例**没有 `options.txt`** → 引导屏挡在前面 → 永远等不到 `TitleScreen`。
+   `Disable-Onboarding` 现在文件不存在就**创建**它（只写这一行）。
+3. 新装的 `fabric-loader-0.20.1-X` 目录**没开版本隔离** → 日志落在 `testgame/logs`、
+   `options.txt` 也不生效 → 表现是「没找到本轮日志」。补 `.mcver-isolated` 标记即可。
+4. mods 目录里留着旧版本 jar（`mc1.21.9.jar` 和新的 `mc1.21.jar` 同时存在）→ 同一个 mod id 两份。
+   `Ensure-Mods` 现在拷完就删掉其它版本的同名 jar。
+
+### 另外两个操作级教训
+- `[System.IO.File]::ReadAllText('相对路径')` 用的是**进程工作目录**，不是 PowerShell 的
+  `cd` 之后的 `Get-Location` → 相对路径会解析到 workspace 去。一律用绝对路径。
+- 用正则删方法时把 `public final class Compat {` 到结尾整段吃掉了（四个文件全废）。
+  正确做法：**按行扫描 + 配对大括号**。这一轮直接 `git checkout` 恢复重做，比修补快。
+
+### 待办 / 边界
+- 右键打开从「原版物品使用事件」变成「每 tick 查 `useKey`」：行为等价，但**M 键不再能在
+  「控制」里改键**（走 `GLFW` 原始按键）。若以后要恢复可配置键位，得为 1.21.9+ 单独做反射桥。
+- 26.x 用户说先不管；1.12.2 本体仍卡在「升 Gradle 9」那个决策上。

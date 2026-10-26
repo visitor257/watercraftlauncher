@@ -61,11 +61,9 @@ if ($null -eq $gradle) {
 Write-Host "Gradle: $gradle" -ForegroundColor Cyan
 
 $targets = @(
-    @{ name = '1.21.4'; mc = '1.21.4'; yarn = '1.21.4+build.8'; api = '0.119.4+1.21.4'; compat = '';       java = '21' },
-    @{ name = '1.21.11'; mc = '1.21.11'; yarn = '1.21.11+build.6'; api = '0.141.6+1.21.11'; compat = '1.21.9'; java = '21' },
-    @{ name = '1.21.10'; mc = '1.21.10'; yarn = '1.21.10+build.3'; api = '0.138.4+1.21.10'; compat = '1.21.9'; java = '21' },
-    @{ name = '1.21.9';  mc = '1.21.9';  yarn = '1.21.9+build.1';  api = '0.134.1+1.21.9';  compat = '1.21.9'; java = '21' },
-    @{ name = '1.21.1'; mc = '1.21.1'; yarn = '1.21.1+build.3'; api = '0.116.17+1.21.1'; compat = '1.21.1'; java = '21' },
+    # 一个 jar 盖 1.21 ~ 1.21.11。编译基准取系列里**最新**的 1.21.11（只有它两端都有），
+    # 1.21/1.21.1 没有 Item.Settings#registryKey，靠 NoSuchMethodError 退回来。
+    @{ name = '1.21';    mc = '1.21.11'; yarn = '1.21.11+build.6'; api = '0.141.6+1.21.11'; compat = '';    java = '21'; wide = '1.21' },
     @{ name = '1.20.1'; mc = '1.20.1'; yarn = '1.20.1+build.10'; api = '0.92.2+1.20.1';  compat = '1.20.1'; java = '17' },
     @{ name = '1.19.4'; mc = '1.19.4'; yarn = '1.19.4+build.2';  api = '0.87.2+1.19.4';  compat = '1.19.4'; java = '17' },
     @{ name = '1.18.2'; mc = '1.18.2'; yarn = '1.18.2+build.4';  api = '0.77.0+1.18.2';  compat = '1.18.2'; java = '17' },
@@ -85,6 +83,8 @@ foreach ($t in $targets) {
     )
     if ($Offline) { $gargs += '--offline' }
     if ($t.compat -ne '') { $gargs += "-Pcompat=$($t.compat)" }
+    # 一个 jar 盖一整个大版本：让 fabric.mod.json 写 >=1.21 <1.22（由 build.gradle 算，不传 > 符号）
+    if ($t.wide -ne '' -and $t.wide) { $gargs += "-Pwide_mc=$($t.wide)" }
 
     Push-Location $mod
     try {
@@ -100,7 +100,8 @@ foreach ($t in $targets) {
         continue
     }
 
-    $jar = Get-ChildItem (Join-Path $mod 'build\libs') -Filter "*-mc$($t.mc).jar" |
+    # 产物名用 target 的 name（1.21 通用 jar 编自 1.21.11，但文件名是 mc1.21）
+    $jar = Get-ChildItem (Join-Path $mod 'build\libs') -Filter "*-mc$($t.name).jar" |
         Sort-Object LastWriteTime -Descending | Select-Object -First 1
     if ($null -eq $jar) {
         Write-Host "  没找到产物 jar" -ForegroundColor Red

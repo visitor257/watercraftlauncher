@@ -1472,3 +1472,54 @@ loom `1.9.2` → **`1.13.6`**（Gradle 8.14.2 能用的最高档；1.14.9 起要
 自检钩子不触发时，「没有 screen=MAIN」不提供任何信息。加一行 `mcver: cur=<类名>`（仅
 `MCVER_OPEN_GUI` 时打，屏幕变了才打），一次就抓到 `class_8032`——
 **以后新 target 界面起不来，先打印 currentScreen 类名。**
+
+## 三十八、2026-10-26 深夜：一个 jar 通吃 1.21 ~ 1.21.11
+
+### 需求来源
+用户先说「你为什么一直在处理高版本」，我认了排序错误；接着提了真正的要求：
+**1.21 已经不会再有新版本（最新到 26.x），就该做一个 jar 盖住整个 1.21 系列。**
+
+这是对的。而且它顺带证明了我上一轮那个判断「维护版本范围最上端是没尽头的线」在 1.21 上不成立 ——
+1.21 是**封闭**的版本段，一次做完永久有效。
+
+### 做法（四条，全部有 javap 依据）
+1. **编译基准取系列里最新的 1.21.11**。理由：`Item.Settings#registryKey` 是 1.21.2 才有的，
+   1.21/1.21.1 没有；编译必须站在「有这个方法」的一端，旧版本靠 `NoSuchMethodError` 退回。
+2. **不 override `Screen#keyPressed`**（1.21.9 起签名换成 `KeyInput`，一个 class 无法两头兼顾）。
+   ESC 由 `Screen` 自己处理，旧 target 继续在自己 compat 里 override 各自那版。
+3. **右键 / M 键改成每 tick 轮询**：`UseItemCallback` 的 lambda 返回类型（`TypedActionResult` →
+   `ActionResult`，1.21.2）和 `KeyBinding` 第 4 参（`String` → `Category`，1.21.9）都会硬断。
+   轮询用的 `options.useKey` / `KeyBinding#wasPressed` / `GLFW.glfwGetKey` 全系列不变。
+4. **删掉游戏内截图自检**。用户问「那是截给我看的吗？没必要」—— 确实没必要，
+   界面验收一直是 `PrintWindow` 外部抓图。删掉后 `saveScreenshot` 那处签名变化直接消失。
+
+### 两个关键技术发现（会反复用到）
+**① remap 环境里字符串反射查 MC 符号一律失效。**
+`Class.forName("net.minecraft.registry.RegistryKey")` 在运行时找不到 —— 网络包里的类是
+intermediary 名（`class_5321`），方法名也是（`method_xxxxx`）。第一版就是靠反射写 `registryKey`，
+一跑就 `NullPointerException: Item id not set`。**该用编译期引用（`X.class`），不要用字符串名。**
+
+**② `DrawContext#drawText` 返回类型 int → void（同 id `method_51439`，描述符 `...Z)I` / `...Z)V`）。**
+这是本轮唯一真正的 ABI 断点。一个 class 文件无法同时引用两种返回类型，所以 `Ctx` 改成
+**运行期按参数类型**遍历 `getDeclaredMethods()` 找方法、拿 `MethodHandle` 调（不写死名字，抗 remap），
+找不到就退化到 `drawTextWithShadow`。
+`fill(int×5)` / `drawItem(ItemStack,int,int)` 两端 id 和描述符都一致，不用处理。
+
+### 结果
+- `dist/` **10 → 6** 个 jar；`src/compat/` 7 → 5 个目录。
+- `verify-gui.ps1` 全量 **17/17 通过**：1.21~1.21.11 十二个版本用**同一个** `mc1.21.jar`，
+  面板像素 15092~15105、中心全 `C6C6C6`、`children=17`。
+- 老 target 数字与改造前完全一致（15061 / 15349 / 15357 / 15357 / 19754）→ 无回归。
+
+### 验证脚本又揪出 4 个「假通过 / 假失败」
+1. `-File` 模式下 `-Targets a,b` 是**一个**字符串 → 全跳过，还打印「全部通过（0 个）」。现在按逗号拆 + 0 用例 exit 1。
+2. 新实例没有 `options.txt` → 引导屏挡路。现在没有就创建。
+3. 新装实例没开版本隔离 → 日志落在 `testgame/logs`、`options.txt` 无效。补 `.mcver-isolated`。
+4. mods 里残留旧版本 jar → 同 mod id 两份。拷完即清。
+
+### 教训（操作级）
+- `[System.IO.File]` 用的是进程 CWD，不是 PowerShell 的 `cd`；相对路径会跑到 workspace 去。
+- **别用正则删 Java 方法**：一次把 `class Compat {` 到文件尾整段吃掉，四个文件全废，靠 `git checkout` 抢救。
+  按行扫 + 配对大括号才对。
+- 用户指出方向错了的时候，先认，再问他真正想要什么 —— 这次「一个 jar 盖全系」就是问出来的，
+  我自己排的优先级（1.21.5–1.21.8 下一块）完全没往这上面想。
