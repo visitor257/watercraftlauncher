@@ -34,4 +34,24 @@ public final class Open {
             return false;
         }
     }
+
+    /** 打开网址（走系统浏览器）。单独提出来是因为 1.12 的 {@code Util.getOperatingSystem()} 没有 open 方法。 */
+    public static boolean uri(String url) {
+        try {
+            String os = System.getProperty("os.name", "").toLowerCase(Locale.ROOT);
+            ProcessBuilder pb;
+            if (os.contains("win")) {
+                pb = new ProcessBuilder("rundll32.exe", "url.dll,FileProtocolHandler", url);
+            } else if (os.contains("mac")) {
+                pb = new ProcessBuilder("open", url);
+            } else {
+                pb = new ProcessBuilder("xdg-open", url);
+            }
+            pb.redirectErrorStream(true);
+            pb.start();
+            return true;
+        } catch (Throwable e) {
+            return false;
+        }
+    }
 }

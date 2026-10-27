@@ -14,6 +14,7 @@ const apiMap = JSON.parse(readFileSync(join(ROOT, 'logs', 'build', 'fabric-api-m
 
 // [MC 版本, 实例目录名]
 const PAIRS = [
+  ['1.12.2', 'V1.12.2-FABRIC'],
   ['1.14', 'V1.14-FABRIC'],
   ['1.14.4', 'V1.14.4-FABRIC'],
   ['1.15.2', 'V1.15.2-FABRIC'],
@@ -42,7 +43,9 @@ function cmp(a, b) {
   return 0;
 }
 function satisfies(mc, range) {
-  // 只处理本仓库写的两种形式：">=A <B" 和 ">=A"
+  // 本仓库写的三种形式：">=A <B"、">=A"、精确 "A"
+  if (!range) return false;
+  if (/^[\d.]+$/.test(range.trim())) return cmp(mc, range.trim()) === 0;
   const m = range.match(/^>=\s*([\d.]+)\s*(?:<\s*([\d.]+))?$/);
   if (!m) return false;
   if (cmp(mc, m[1]) < 0) return false;
@@ -90,18 +93,22 @@ for (const [mc, inst] of list) {
   mkdirSync(mods, { recursive: true });
 
   const jar = jarFor(mc);
+  // 1.12.2 不需要 fabric-api（那代只有 legacy-fabric-api，而且本 mod 没用它）
   const api = apiMap[mc];
-  if (!api) throw new Error(`fabric-api-map.json 里没有 ${mc}`);
-  const apiSrc = join(CACHE, api.file);
-  if (!existsSync(apiSrc)) throw new Error(`缺 fabric-api 缓存 ${apiSrc}`);
+  const NEED_API = mc !== '1.12.2';
+  if (NEED_API && !api) throw new Error(`fabric-api-map.json 里没有 ${mc}`);
+  const apiSrc = api ? join(CACHE, api.file) : null;
+  if (NEED_API && !existsSync(apiSrc)) throw new Error(`缺 fabric-api 缓存 ${apiSrc}`);
 
   for (const f of readdirSync(mods)) {
-    if (f.startsWith('watercraftlauncher-') || f.startsWith('fabric-api-')) unlinkSync(join(mods, f));
+    if (f.startsWith('watercraftlauncher-') || f.startsWith('fabric-api-') || f.startsWith('legacy-fabric-api-')) {
+      unlinkSync(join(mods, f));
+    }
   }
   copyFileSync(jar, join(mods, jar.split(/[\\/]/).pop()));
-  copyFileSync(apiSrc, join(mods, api.file));
+  if (NEED_API) copyFileSync(apiSrc, join(mods, api.file));
 
-  console.log(`\n=== ${mc} (${inst})  ${jar.split(/[\\/]/).pop()} + ${api.file}`);
+  console.log(`\n=== ${mc} (${inst})  ${jar.split(/[\\/]/).pop()}${NEED_API ? ' + ' + api.file : ' (无 fabric-api)'}`);
   const r = spawnSync(process.execPath, [join(ROOT, 'scripts', 'verify-gui-one.mjs'), inst], {
     cwd: ROOT,
     encoding: 'utf8',

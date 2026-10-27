@@ -1,0 +1,25 @@
+{
+  "schemaVersion": 1,
+  "id": "mcver",
+  "version": "1.0.0",
+  "name": "Water Craft Launcher",
+  "description": "在游戏内下载/安装 Minecraft 版本、管账号、启动别的版本。",
+  "authors": [
+    "WaterCraft"
+  ],
+  "license": "MIT",
+  "environment": "client",
+  "entrypoints": {
+    "main": [
+      "dev.mcver.McVerMod"
+    ],
+    "client": [
+      "dev.mcver.McVerClient"
+    ]
+  },
+  "depends": {
+    "fabricloader": ">=0.14.0",
+    "minecraft": "1.12.2",
+    "java": ">=1.8"
+  }
+}
