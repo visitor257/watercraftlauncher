@@ -14,7 +14,15 @@ const apiMap = JSON.parse(readFileSync(join(ROOT, 'logs', 'build', 'fabric-api-m
 
 // [MC 版本, 实例目录名]
 const PAIRS = [
+  ['1.7.10', 'V1.7.10-FABRIC'],
+  ['1.8', 'V1.8-FABRIC'],
+  ['1.8.8', 'V1.8.8-FABRIC'],
+  ['1.8.9', 'V1.8.9-FABRIC'],
+  ['1.9.4', 'V1.9.4-FABRIC'],
+  ['1.10.2', 'V1.10.2-FABRIC'],
+  ['1.11.2', 'V1.11.2-FABRIC'],
   ['1.12.2', 'V1.12.2-FABRIC'],
+  ['1.13.2', 'V1.13.2-FABRIC'],
   ['1.14', 'V1.14-FABRIC'],
   ['1.14.4', 'V1.14.4-FABRIC'],
   ['1.15.2', 'V1.15.2-FABRIC'],
@@ -93,9 +101,11 @@ for (const [mc, inst] of list) {
   mkdirSync(mods, { recursive: true });
 
   const jar = jarFor(mc);
-  // 1.12.2 不需要 fabric-api（那代只有 legacy-fabric-api，而且本 mod 没用它）
+  // 1.13.2 及更早（Legacy Fabric）不需要 fabric-api：那代只有 legacy-fabric-api，
+  // 包名是 net.legacyfabric.* + ornithe C_xxxx 命名，跟本工程的 class_xxxx intermediary 对不上
+  const legacy = cmp(mc, '1.14') < 0;
   const api = apiMap[mc];
-  const NEED_API = mc !== '1.12.2';
+  const NEED_API = !legacy;
   if (NEED_API && !api) throw new Error(`fabric-api-map.json 里没有 ${mc}`);
   const apiSrc = api ? join(CACHE, api.file) : null;
   if (NEED_API && !existsSync(apiSrc)) throw new Error(`缺 fabric-api 缓存 ${apiSrc}`);

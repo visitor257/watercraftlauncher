@@ -663,3 +663,74 @@ hits 的差异只是字体度量不同，量级和 Fabric 历史值一致。
   且 1.13 之前的 UI 是 `GuiScreen` + `TextComponent` + 无 MatrixStack 的另一套世界 ——
   那不是一个 target，是**另一个代码库**。启动器侧 1.12.2 Legacy Fabric 已经 L2，mod 本体还没有。
 - Forge/NeoForge 1.16 ~ 1.20.4（需要 SRG reobf 管线）。
+
+## 16. 2026-10-27 晚：Fabric 全版本 —— 1.7.10 一路铺到 1.13.2（16 个 jar）
+
+这一节接第 15 节。第 15 节写「Legacy Fabric 1.3~1.13.2 不是另一个 target，是另一个代码库」——
+**这个判断是错的**，而且错得很贵。真相是：Legacy Fabric 的 yarn 是 **yarn v2 风格的 retrofit 命名**，
+1.7.10 往上到 1.13.2 全部是 `net/minecraft/client/gui/screen/Screen`、
+`Text`/`LiteralText`、`Item.REGISTRY`、`ButtonWidget` 这套东西，
+和 1.12.2 / 1.14 是同量级的差异，不是「远古世界」。
+
+### 现在的覆盖
+
+| 版本 | jar | 实例 | 结果 |
+| --- | --- | --- | --- |
+| 1.7.10 | mc1.7.10 | V1.7.10-FABRIC | PASS 15128 / children 17 |
+| 1.8 · 1.8.8 · 1.8.9 | mc1.8.9（`>=1.8 <1.9`） | V1.8 / V1.8.8 / V1.8.9-FABRIC | PASS 15142 / 15087 / 15087 |
+| 1.9.4 | mc1.9.4 | V1.9.4-FABRIC | PASS 15065 |
+| 1.10.2 | mc1.10.2 | V1.10.2-FABRIC | PASS 15065 |
+| 1.11.2 | mc1.11.2 | V1.11.2-FABRIC | PASS 15065 |
+| 1.12.2 | mc1.12.2 | V1.12.2-FABRIC | PASS 15065 |
+| 1.13.2 | mc1.13.2 | V1.13.2-FABRIC | PASS 15066 |
+| 1.14 ~ 1.21.11 | 9 个（见第 15 节） | 16 个实例 | PASS |
+
+判据照旧：真窗口 `PrintWindow` 抓图 → 中心像素 `C6C6C6`、面板色命中 > 1 万、`children=17`。
+一次批量跑（`verify-fabric-all.mjs`）9 个 legacy 实例全 PASS。
+
+**Fabric 官方 + Legacy Fabric 能装 loader 的版本，现在只剩 1.7.2~1.7.9 和 1.6.4 及以下没做。**
+
+### 四个 API 代（每个代一份 compat 目录，页面代码零改动）
+
+- `compat/1.13.2` —— 1.13 的唯一版本（Legacy Fabric 只支持 1.13.2，1.13/1.13.1 没有 loader）。
+  GUI 重构后：有 `Element`（`class_4122`）、`Screen#render(int,int,float)` 不自动画背景、
+  按钮**没有回调接口**（`PressAction` 是 1.14 才有），点击终点是 `ButtonWidget#method_18374(double,double)`
+  → 只能继承一个私有子类覆盖它。`mouseScrolled(double)` 只有一个参数（没有鼠标坐标）。
+- `compat/1.11.2` —— 1.11 / 1.12 两代（1.12.2 单独一份，因为它要多一个 `init()` 可见性规则）。
+- `compat/1.10.2` —— 1.9 / 1.10：和 1.11 的差别只有两处：`Item#method_11373(ItemStack,World,PlayerEntity,Hand)`
+  才是右键钩子；`Screen` 没有 `addButton(T)`，只能 `buttons.add(...)`。
+- `compat/1.8.9` —— 1.8 全家：右键是 `Item#onStartUse(ItemStack,World,PlayerEntity)` 返回 ItemStack，
+  `ItemRenderer` 的方法叫 `renderInGuiWithOverrides`。一个 jar 声明 `>=1.8 <1.9`。
+- `compat/1.7.10` —— 最老一代：`TextFieldWidget` 构造器**没有 id 参数**；
+  `TextRenderer#draw` 的坐标是 **int**；`Text` 没有 `getString()`（用 `asUnformattedString()`）；
+  `ItemRenderer` 是 `Screen` 上的 **protected static 字段**，画物品要自己传 TextRenderer + TextureManager
+  （`method_1549`）；`Item.REGISTRY` 是 raw `SimpleRegistry`，注册是
+  `add(int id, String name, Object)`，id 得自己扫空位（从 4000 起）。
+
+### 这轮的坑（都记下来，别再踩）
+
+1. **1.13.2 的 6 参 ButtonWidget 构造器是 `(id, x, y, w, h, msg)`，id 在最前面**（和 1.12 一样，和 1.14 相反）。
+   传错 → 按钮宽度变成 id 值，屏幕上出现一片盖住面板的白条，`center=FFFFFF`。定位靠三步二分。
+2. **1.13.2 没有 `net.minecraft.client.render.item.ItemRenderer`** —— GUI 画物品挂在
+   `HeldItemRenderer#method_19376`（就是老 ItemRenderer 改名）。别顺着类名找。
+3. **Legacy Fabric maven 路径多一层**：`repo.legacyfabric.net/legacyfabric/net/legacyfabric/yarn/...`，
+   版本号里的 `+` 要 encode 成 `%2B`。
+4. **`mk-legacy-named.mjs` 要能找到「合并版」原版 jar**：安装器会把 vanilla 合并进
+   `versions/<instance>/<instance>.jar`，`versions/<mc>/<mc>.jar` 那时已经不存在了。
+5. **`.mcver-isolated` 是启动时才写的**，装完那一刻没有 → 不能靠它判断 mods 目录，
+   干脆 `versions/<id>/mods` 和 `testgame/mods` 两处都放（loader 按 mod id 去重 + 按 depends 过滤）。
+6. **共用 mods 目录不能乱清**：`put-mod` 早期版本会删掉别的实例刚装的 jar，
+   结果那次验证只加载了 4 个 mod（看起来像「mod 没生效」，其实是自己删的）。
+7. **1.7.9 起不来是 Legacy Fabric 自己的问题**：`Mapping source name conflicts detected` →
+   `Unfixable conflicts`，发生在 loader 的 game remap 阶段，和本 mod 无关。
+8. **1.7.2 的 `MinecraftClient` 没有 `execute(Callable)`**（1.7.10 才有；1.7.2 是
+   `func_152344_a(Runnable)` 且 yarn 没命名）。跨 1.7.x 用一个 jar 盖不住 → 暂时只做 1.7.10。
+
+### 工具
+
+- `scripts/mk-legacy-named.mjs <mc> [--instance <id>] [--yarn <ver>]`：通用前置，
+  自动取 yarn 版本、下 intermediary + yarn、两步 remap 出 named jar。
+- `scripts/build-1132.mjs <mc> [--instance <id>] [--mcrange "<range>"]`：通用 legacy 构建
+  （javac --release 8 → jar → remap named→intermediary → dist）。按 MC 版本自动挑 compat 代。
+- `scripts/put-mod.mjs <instance> <jar>`：装进实例（两处都放）。
+- `scripts/verify-fabric-all.mjs`：矩阵跑，`<1.14` 自动跳过 fabric-api。
