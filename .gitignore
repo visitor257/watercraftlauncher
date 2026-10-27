@@ -55,3 +55,12 @@ spike/lf122/.gradle/
 spike/lf122/build/
 spike/lf122/gradle/
 spike/lf-yarn/*.jar
+
+# ---- javac 崩溃时吐的参数文件
+javac.*.args
+
+# ---- modx 下的中间产物（映射、gen 源码、classes）
+modx/build-*/
+modx/legacy/work/
+modx/legacy1122/classes/
+
