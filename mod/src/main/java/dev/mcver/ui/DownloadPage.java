@@ -141,7 +141,7 @@ public class DownloadPage extends Page {
         int x = host.contentX();
         int w = host.contentW();
 
-        searchField = new TextFieldWidget(this.tr(), x, host.contentY() + 1, w - 54, 16, Txt.of("搜索"));
+        searchField = Field.of(this.tr(), x, host.contentY() + 1, w - 54, 16, "搜索");
         searchField.setMaxLength(32);
         searchField.setText(query);
         searchField.setChangedListener(s -> {
@@ -281,7 +281,7 @@ public class DownloadPage extends Page {
             rebuild();
         }).dimensions(x, yBack(), 46, 15).build());
 
-        nameField = new TextFieldWidget(this.tr(), x + 30, yName() - 1, w - 30, 16, Txt.of("版本名"));
+        nameField = Field.of(this.tr(), x + 30, yName() - 1, w - 30, 16, "版本名");
         nameField.setMaxLength(64);
         nameField.setText(name);
         nameField.setChangedListener(s -> {

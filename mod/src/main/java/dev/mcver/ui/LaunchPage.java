@@ -152,7 +152,7 @@ public class LaunchPage extends Page {
         unfinishedY = (ry + 12 <= statusY()) ? ry + 2 : -1;
 
         // ---- 第一行：内存 + 启动后行为
-        memField = new TextFieldWidget(this.tr(), x + 24, row1Y(), 44, 16, Txt.of("内存"));
+        memField = Field.of(this.tr(), x + 24, row1Y(), 44, 16, "内存");
         memField.setMaxLength(5);
         memField.setText(String.valueOf(memMb));
         memField.setChangedListener(s -> {
@@ -173,7 +173,7 @@ public class LaunchPage extends Page {
                     closeAfter = !closeAfter;
                     Config.closeAfterLaunch = closeAfter;
                     Config.save();
-                    b.setMessage(Txt.of(closeAfter ? "启动后关当前 ✓" : "启动后关当前"));
+                    Btn.label(b, closeAfter ? "启动后关当前 ✓" : "启动后关当前");
                 }).dimensions(x + w - 100, row1Y(), 100, 16).build());
 
         // ---- 第二行：动作
@@ -323,7 +323,7 @@ public class LaunchPage extends Page {
         }
 
         int y = host.contentBottom() - 18;
-        dirField = new TextFieldWidget(this.tr(), x, y, w - 66, 18, Txt.of("目录路径"));
+        dirField = Field.of(this.tr(), x, y, w - 66, 18, "目录路径");
         dirField.setMaxLength(260);
         dirField.setText("");
         add(dirField);

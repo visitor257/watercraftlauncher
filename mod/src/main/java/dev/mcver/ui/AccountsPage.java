@@ -104,7 +104,7 @@ public class AccountsPage extends Page {
         }
 
         // ---- 离线：名字 + 按钮
-        nameField = new TextFieldWidget(this.tr(), x + 28, nameRowY(), 108, 16, Txt.of("玩家名"));
+        nameField = Field.of(this.tr(), x + 28, nameRowY(), 108, 16, "玩家名");
         nameField.setMaxLength(16);
         nameField.setText(suggestName());
         add(nameField);
@@ -290,7 +290,7 @@ public class AccountsPage extends Page {
 
     /** 设备码画成一小块深色底板，方便照着输。 */
     private void drawCode(Ctx ctx, String code, int x, int y) {
-        int w = this.tr().getWidth(code) + 10;
+        int w = Measure.width(tr(), code) + 10;
         ctx.fill(x, y, x + w, y + 12, 0xFF3A3A3A);
         ctx.fill(x, y, x + w, y + 1, 0xFF202020);
         text(ctx, code, x + 5, y + 2, 0xFFFFE08A);

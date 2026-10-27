@@ -6,7 +6,6 @@ import dev.mcver.core.Jobs;
 import net.minecraft.client.MinecraftClient;
 import net.minecraft.client.gui.screen.Screen;
 import net.minecraft.client.gui.widget.ButtonWidget;
-import net.minecraft.client.gui.widget.ClickableWidget;
 import net.minecraft.item.ItemStack;
 import net.minecraft.text.Text;
 
@@ -139,8 +138,8 @@ public class MainScreen extends ChromeScreen {
     }
 
     /** 给 Page 用的公开入口（基类的 addWidget 是 protected）。 */
-    public <T extends ClickableWidget> T add(T w) {
-        return addWidget(w);
+    public void add(Object w) {
+        addWidget(w);
     }
 
     // ================================================================ 事件
@@ -264,7 +263,7 @@ public class MainScreen extends ChromeScreen {
     }
 
     private void rightAlignedText(Ctx ctx, String s, int rx, int y, int color) {
-        ctx.drawText(this.textRenderer, Txt.of(s), rx - this.textRenderer.getWidth(s), y, color, false);
+        ctx.drawText(this.textRenderer, Txt.of(s), rx - Measure.width(this.textRenderer, s), y, color, false);
     }
 
     private String trim(String s, int w) {

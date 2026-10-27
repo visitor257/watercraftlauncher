@@ -78,7 +78,10 @@ $targets = @(
     @{ name = '1.19.3'; mc = '1.19.4'; yarn = '1.19.4+build.2'; api = '0.87.2+1.19.4';  compat = '1.19.3'; java = '17'; wide = '1.19.3' },
     @{ name = '1.18'; mc = '1.18.2';  yarn = '1.18.2+build.4';  api = '0.77.0+1.18.2';   compat = '1.18';  java = '17'; wide = '1.18' },
     @{ name = '1.17'; mc = '1.17.1';  yarn = '1.17.1+build.65'; api = '0.46.1+1.17';     compat = '1.17';  java = '16'; wide = '1.17' },
-    @{ name = '1.16'; mc = '1.16.5';  yarn = '1.16.5+build.10'; api = '0.42.0+1.16';     compat = '1.16';  java = '8';  wide = '1.16' }
+    @{ name = '1.16'; mc = '1.16.5';  yarn = '1.16.5+build.10'; api = '0.42.0+1.16';     compat = '1.16';  java = '8';  wide = '1.16' },
+    # 1.15 / 1.14 是 Fabric 官方支持的下限（再往下是 Legacy Fabric，另一套 mappings）
+    @{ name = '1.15'; mc = '1.15.2';  yarn = '1.15.2+build.17'; api = '0.28.5+1.15';     compat = '1.15';  java = '8';  wide = '1.15' },
+    @{ name = '1.14'; mc = '1.14.4';  yarn = '1.14.4+build.18'; api = '0.28.5+1.14';     compat = '1.14';  java = '8';  wide = '1.14' }
 )
 
 $failed = @()

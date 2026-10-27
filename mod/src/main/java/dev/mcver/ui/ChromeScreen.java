@@ -67,8 +67,8 @@ public abstract class ChromeScreen extends Screen {
      * 加一个控件。游戏里的方法名跨版本改过：
      * 1.17+ 是 {@code addDrawableChild}，1.16.5 是 {@code addChild}。
      */
-    protected <T extends ClickableWidget> T addWidget(T w) {
-        return addDrawableChild(w);
+    protected void addWidget(Object w) {
+        addDrawableChild((ClickableWidget) w);
     }
 
     /** 清空控件：1.17+ 叫 {@code clearChildren()}，1.16.5 只能直接清 buttons 列表。 */

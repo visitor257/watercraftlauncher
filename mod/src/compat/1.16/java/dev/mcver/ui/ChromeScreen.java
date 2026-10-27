@@ -2,6 +2,7 @@ package dev.mcver.ui;
 
 import net.minecraft.client.MinecraftClient;
 import net.minecraft.client.gui.screen.Screen;
+import net.minecraft.client.gui.widget.ClickableWidget;
 import net.minecraft.client.util.math.MatrixStack;
 import net.minecraft.text.Text;
 
@@ -29,8 +30,8 @@ public abstract class ChromeScreen extends Screen {
     protected abstract void drawChrome(Ctx ctx);
 
     /** 加控件：1.16.5 叫 addChild（1.17+ 才改名 addDrawableChild）。 */
-    protected <T extends net.minecraft.client.gui.widget.ClickableWidget> T addWidget(T w) {
-        return addChild(w);
+    protected void addWidget(Object w) {
+        addChild((ClickableWidget) w);
     }
 
     /** 清空控件：1.16.5 没有 clearChildren()，直接清 buttons（protected 字段）。 */

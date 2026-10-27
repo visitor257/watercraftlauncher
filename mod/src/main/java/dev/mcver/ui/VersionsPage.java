@@ -97,7 +97,7 @@ public class VersionsPage extends Page {
         }
 
         if (renaming) {
-            renameField = new TextFieldWidget(this.tr(), x, bottomY(), w - 96, 18, Txt.of("新版本名"));
+            renameField = Field.of(this.tr(), x, bottomY(), w - 96, 18, "新版本名");
             renameField.setMaxLength(64);
             renameField.setText(selected == null ? "" : selected);
             add(renameField);

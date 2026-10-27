@@ -73,7 +73,7 @@ public class SettingsPage extends Page {
 
         add(Btn.builder(Txt.of(fullscreen ? "全屏 ✓" : "窗口"), b -> {
             fullscreen = !fullscreen;
-            b.setMessage(Txt.of(fullscreen ? "全屏 ✓" : "窗口"));
+            Btn.label(b, fullscreen ? "全屏 ✓" : "窗口");
             // 立即落盘：不然切页/重建后 init() 会从 Config 把勾选状态读回去（等于白勾）
             Config.fullscreen = fullscreen;
             Config.save();
@@ -89,7 +89,7 @@ public class SettingsPage extends Page {
 
         add(Btn.builder(Txt.of(isolation ? "版本隔离 ✓" : "版本隔离"), b -> {
             isolation = !isolation;
-            b.setMessage(Txt.of(isolation ? "版本隔离 ✓" : "版本隔离"));
+            Btn.label(b, isolation ? "版本隔离 ✓" : "版本隔离");
             // 立即落盘（同上）：以前只改页内变量，切个页就“勾不见了”
             Config.defaultIsolation = isolation;
             Config.save();
@@ -159,7 +159,7 @@ public class SettingsPage extends Page {
     }
 
     private TextFieldWidget field(int x, int y, int w, String value, int max) {
-        TextFieldWidget f = new TextFieldWidget(this.tr(), x, y, w, 18, Txt.of(""));
+        TextFieldWidget f = Field.of(this.tr(), x, y, w, 18, "");
         f.setMaxLength(max);
         f.setText(value == null ? "" : value);
         add(f);
@@ -281,12 +281,12 @@ public class SettingsPage extends Page {
         }
 
         int y = host.contentBottom() - 36;
-        srcNameField = new TextFieldWidget(this.tr(), x, y, 76, 16, Txt.of("名字"));
+        srcNameField = Field.of(this.tr(), x, y, 76, 16, "名字");
         srcNameField.setMaxLength(24);
         srcNameField.setText("");
         add(srcNameField);
 
-        srcUrlField = new TextFieldWidget(this.tr(), x + 80, y, w - 80 - 48, 16, Txt.of("镜像根地址"));
+        srcUrlField = Field.of(this.tr(), x + 80, y, w - 80 - 48, 16, "镜像根地址");
         srcUrlField.setMaxLength(200);
         srcUrlField.setText("");
         add(srcUrlField);

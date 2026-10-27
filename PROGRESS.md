@@ -51,7 +51,7 @@ OptiFine 用错 Java），另外修掉 **3 个会造出假验证结果的工具�
 | 1.14.1/1.14.2/1.14.3、1.15/1.15.1、1.16.1~1.16.4、1.17 其余、1.20 其余… | 规则表判定可装，**未逐版本实测** |
 | 1.14.1/1.14.2/1.14.3、1.15/1.15.1、1.16.1~1.16.4、1.17 其余、1.20 其余… | 规则表判定可装，**未逐版本实测** |
 | 快照 / 愚人节版 | 未跑（Fabric/Quilt 规则表标 MAYBE）|
-| mod 本体 | 只出 1.21.4 / 1.21.1 / 1.20.1 / 1.19.4 / **1.18.2** 五个包（见 §11）|
+| mod 本体 | **Fabric 9 个包，覆盖 1.14 ~ 1.21.11 全部版本**（mc1.14/mc1.15/mc1.16/mc1.17/mc1.18/mc1.19/mc1.19.3/mc1.20/mc1.21），16 个实例像素级验收全绿（见 §15）。Forge/NeoForge 目前只有 1.20.6/1.21.1 |
 
 > 若要把「全版本」这三个字用起来，得按加载器把 192 个组合各装一遍（估 10+ 小时机器时间）。
 > 现在的口径是**断层覆盖**，不是全量验证。
@@ -604,3 +604,62 @@ Windows 会把 `>` 当重定向（这个坑踩过多次）。
 - 右键打开从「原版物品使用事件」变成「每 tick 查 `useKey`」：行为等价，但**M 键不再能在
   「控制」里改键**（走 `GLFW` 原始按键）。若以后要恢复可配置键位，得为 1.21.9+ 单独做反射桥。
 - 26.x 用户说先不管；1.12.2 本体仍卡在「升 Gradle 9」那个决策上。
+
+## 15. 2026-10-27：mod 本体 Fabric 铺满 1.14 ~ 1.21.11（9 个 jar / 16 个实例像素验收）
+
+以前只有 1.16+ 六个 jar。今天补上 **1.15 / 1.14** 两代，并把整条 Fabric 线全部重验一遍。
+
+| 产物 | 覆盖 | 验收实例（center 全部 C6C6C6，children 全部 17）|
+|---|---|---|
+| mc1.14.jar | 1.14 ~ 1.14.4 | V1.14 15120、V1.14.4 15066 |
+| mc1.15.jar | 1.15 ~ 1.15.2 | V1.15.2 15357 |
+| mc1.16.jar | 1.16 ~ 1.16.5 | 1.16 19754、1.16.5 19754 |
+| mc1.17.jar | 1.17 ~ 1.17.1 | 15357 / 15357 |
+| mc1.18.jar | 1.18 ~ 1.18.2 | 1.18.2 PASS |
+| mc1.19.jar | 1.19 ~ 1.19.2 | 1.19 15357 |
+| mc1.19.3.jar | 1.19.3 ~ 1.19.4 | 1.19.4 15349 |
+| mc1.20.jar | 1.20 ~ 1.20.6 | 1.20.1 15061、1.20.4 15092、1.20.6 15092 |
+| mc1.21.jar | 1.21 ~ 1.21.11 | 1.21.1、1.21.4、1.21.11 |
+
+hits 的差异只是字体度量不同，量级和 Fabric 历史值一致。
+
+### 1.15 / 1.14 为什么不是「顺手加个 target」
+
+这两代 API 是**倒退**的，比 1.16 少东西：
+
+- **1.15**：`Screen#render(int,int,float)`（没有 MatrixStack）、`renderBackground()` 无参、
+  `addButton(AbstractButtonWidget)`、`Screen#font`（1.16 才改名 textRenderer）、`MutableText` 不存在、
+  `TextFieldWidget` / `ButtonWidget` 的文案参数是 **String**、`TextRenderer#getWidth` 不存在（只有 `getStringWidth`）、
+  `DrawableHelper#fill` 是 5 参静态版、`KeyBinding` 在 `net.minecraft.client.options`、物品图标叫 `renderGuiItem`。
+- **1.14**：在上面基础上 `TextRenderer` 连 Matrix4f 长重载都没有（只有 `draw(String,int,int,int)` /
+  `drawWithShadow`），`MinecraftClient#getBufferBuilders()` 不存在，`TypedActionResult.success/pass` 是 1.15 才加的
+  （只能 `new TypedActionResult<>(ActionResult.X, stack)`，且 `UseItemCallback` 在 1.14 直接返回 `ActionResult`）。
+
+为了让页面代码一行不改，新增三个**跨版本 shim**（每个 target 一份实现）：
+`ui/Field`（输入框文案 String/Text）、`Btn.label(button, String)`、`ui/Measure.width(tr, String)`。
+同时把 `Page.add` / `MainScreen.add` / `ChromeScreen.addWidget` 的泛型从 `ClickableWidget` 放宽成 `Object`
+（1.15 根本没有 ClickableWidget 这个类），返回值本来没人用。
+
+### 踩到的坑
+
+1. **Fabric API 的 maven 包不是分发版**：`net.fabricmc.fabric-api:fabric-api:0.28.5+1.15` 只有 6 个文件（core module），
+   运行时 `ClassNotFoundException: FabricItemGroupBuilder`。真正的 bundle（带 `META-INF/jars/*` 33 个模块）
+   要从 **Modrinth maven** 拿：`api.modrinth.com/maven/maven/modrinth/fabric-api/<ver>/fabric-api-<ver>.jar`。
+2. **Modrinth 上「支持 1.14 的最新 release」是 0.2.7+build.127**（远古版本，缺 ItemGroup API）→ 1.14 崩在客户端入口。
+   实际上 **0.28.5+1.14 在 1.14 上照样能用**，map 里手动钉住。
+3. 换 MC 版本必须换 fabric-api（同一实例里旧 api 会被 loader 拒载），`verify-fabric-all.mjs` 已做。
+4. 26.1 没有对应 jar：`mc1.21.jar` 只声明 `>=1.21 <1.22`，26.1 的新版本号不在其内；
+   **mod 本体对 26.1 不做承诺**（启动器侧 26.1 Fabric 是 L2，两回事）。
+
+### 工具
+
+- `scripts/verify-fabric-all.mjs`：按 `fabric.mod.json` 的区间挑 jar + 按版本换 fabric-api + 逐实例跑
+  `verify-gui-one.mjs`，输出 PASS/FAIL 汇总。判据仍是「真窗口 + 中心 C6C6C6 + hits>1e4 + children=17」。
+- `scripts/prep-1.15.mjs`（机械改 main 里的三处写法定型）、`scripts/fix-compat-shims.mjs`（补 import / Btn.label）。
+
+### 还没做
+
+- **Legacy Fabric（1.3 ~ 1.13.2）**：Fabric 官方到 1.14 为止，再往下要 `net.legacyfabric:yarn` + ornithe-loom，
+  且 1.13 之前的 UI 是 `GuiScreen` + `TextComponent` + 无 MatrixStack 的另一套世界 ——
+  那不是一个 target，是**另一个代码库**。启动器侧 1.12.2 Legacy Fabric 已经 L2，mod 本体还没有。
+- Forge/NeoForge 1.16 ~ 1.20.4（需要 SRG reobf 管线）。

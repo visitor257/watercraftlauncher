@@ -116,7 +116,7 @@ public class JavaPage extends Page {
             ry += 18;
         }
 
-        addField = new TextFieldWidget(this.tr(), x, footY(), w - 66, 18, Txt.of("java 路径"));
+        addField = Field.of(this.tr(), x, footY(), w - 66, 18, "java 路径");
         addField.setMaxLength(260);
         addField.setText("");
         add(addField);

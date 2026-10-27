@@ -14,6 +14,11 @@ public final class Btn {
 
     private Btn() { }
 
+    /** 改按钮文字（1.16+ 的 setMessage 收 Text，见 dev.mcver.ui.Txt）。 */
+    public static void label(ButtonWidget button, String s) {
+        button.setMessage(Txt.of(s));
+    }
+
     public static Builder builder(Text text, ButtonWidget.PressAction onPress) {
         return new Builder(text, onPress);
     }

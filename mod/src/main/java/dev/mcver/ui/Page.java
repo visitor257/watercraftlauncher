@@ -2,7 +2,6 @@ package dev.mcver.ui;
 
 import net.minecraft.client.MinecraftClient;
 import net.minecraft.client.font.TextRenderer;
-import net.minecraft.client.gui.widget.ClickableWidget;
 import net.minecraft.text.Text;
 
 /** 主面板里的一页。控件由页自己往 Screen 上加。 */
@@ -26,8 +25,8 @@ public abstract class Page {
     }
 
     /** 往当前 Screen 上加控件。 */
-    protected <T extends ClickableWidget> T add(T w) {
-        return host.add(w);
+    protected void add(Object w) {
+        host.add(w);
     }
 
     public void render(Ctx ctx, int mouseX, int mouseY, float delta) { }
@@ -56,11 +55,11 @@ public abstract class Page {
     }
 
     protected void centered(Ctx ctx, String s, int cx, int y, int color) {
-        ctx.drawText(tr(), Txt.of(s), cx - tr().getWidth(s) / 2, y, color, false);
+        ctx.drawText(tr(), Txt.of(s), cx - Measure.width(tr(), s) / 2, y, color, false);
     }
 
     protected void rightAligned(Ctx ctx, String s, int rx, int y, int color) {
-        ctx.drawText(tr(), Txt.of(s), rx - tr().getWidth(s), y, color, false);
+        ctx.drawText(tr(), Txt.of(s), rx - Measure.width(tr(), s), y, color, false);
     }
 
     protected String trim(String s, int w) {

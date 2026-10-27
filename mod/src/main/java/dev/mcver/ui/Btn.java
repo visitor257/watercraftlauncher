@@ -20,6 +20,11 @@ public final class Btn {
         return new Builder(text, onPress);
     }
 
+    /** 改按鈕文字：1.16+ 收 {@code Text}，1.15 及更早收 {@code String}。 */
+    public static void label(ButtonWidget button, String s) {
+        button.setMessage(Txt.of(s));
+    }
+
     /** 只包住我们实际用到的那几个 builder 方法：dimensions / build。 */
     public static final class Builder {
 
