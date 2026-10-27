@@ -46,6 +46,26 @@ const TARGETS = {
     jarName: 'watercraftlauncher-neoforge-1.0.0-mc1.21.1',
   },
 
+  // TODO(1.16~1.20.4)：这些版本 Forge 运行时**方法/字段还是 SRG 名**（m_91087_ / f_12345_），
+  // 只有类名是官方名。所以不能用 javac 直编那套，得先把 srg 包转成官方名再编、编完再 reobf 回 srg。
+  // 详见 docs 里的说明 / PROGRESS.md 的「下一步」。下面这个 target 目前会编译失败（预期）。
+  'forge-20.4-legacy': {
+    mc: '1.20.4',
+    java: 17,
+    instance: 'V1.20.4-FORGE',
+    clientJar: 'net/minecraftforge/forge/1.20.4-49.2.13/forge-1.20.4-49.2.13-client.jar',
+    universalJar: 'net/minecraftforge/forge/1.20.4-49.2.13/forge-1.20.4-49.2.13-universal.jar',
+    modsToml: 'META-INF/mods.toml',
+    loaderRange: '[24,)',
+    packFormat: 22,
+    loaderDep: ['forge', '[49,)'],
+    mcRange: '[1.20.4,1.20.5)',
+    sources: ['mod/src/main/java'],
+    overlay: ['shims21/java', 'forge21/java'],
+    resources: ['mod/src/main/resources'],
+    jarName: 'watercraftlauncher-forge-1.0.0-mc1.20.4',
+  },
+
   'forge-21.1': {
     mc: '1.21.1',
     java: 21,
@@ -63,6 +83,43 @@ const TARGETS = {
     overlay: ['shims21/java', 'forge21/java'],
     resources: ['mod/src/main/resources'],
     jarName: 'watercraftlauncher-forge-1.0.0-mc1.21.1',
+  },
+
+  'forge-20.6': {
+    mc: '1.20.6',
+    java: 21,
+    instance: 'V1.20.6-FORGE',
+    clientJar: 'net/minecraftforge/forge/1.20.6-50.2.14/forge-1.20.6-50.2.14-client.jar',
+    universalJar: 'net/minecraftforge/forge/1.20.6-50.2.14/forge-1.20.6-50.2.14-universal.jar',
+    modsToml: 'META-INF/mods.toml',
+    loaderRange: '[24,)',
+    packFormat: 32,
+    loaderDep: ['forge', '[50,)'],
+    mcRange: '[1.20.6,1.21)',
+    sources: ['mod/src/main/java'],
+    overlay: ['shims21/java', 'forge21/java'],
+    resources: ['mod/src/main/resources'],
+    jarName: 'watercraftlauncher-forge-1.0.0-mc1.20.6',
+  },
+
+  'neoforge-20.6': {
+    mc: '1.20.6',
+    java: 21,
+    instance: 'neoforge-20.6.144',
+    clientJar: 'net/neoforged/neoforge/20.6.144/neoforge-20.6.144-client.jar',
+    mcOfficialJar: 'net/minecraft/client/1.20.6/client-1.20.6-official.jar',
+    universalJar: 'net/neoforged/neoforge/20.6.144/neoforge-20.6.144-universal.jar',
+    // NeoForge 20.5+ 把清单文件改名为 neoforge.mods.toml（20.2/20.4 还是 mods.toml）
+    modsToml: 'META-INF/neoforge.mods.toml',
+    // NeoForge 20.6 的 FML 是 3.x（21.x 才是 4.x，Forge 一直是 24+）
+    loaderRange: '[3,)',
+    packFormat: 32,
+    loaderDep: ['neoforge', '[20.6.0,)'],
+    mcRange: '[1.20.6,1.21)',
+    sources: ['mod/src/main/java'],
+    overlay: ['shims21/java', 'neoforge21/java'],
+    resources: ['mod/src/main/resources'],
+    jarName: 'watercraftlauncher-neoforge-1.0.0-mc1.20.6',
   },
 };
 
@@ -104,12 +161,67 @@ const instJson = JSON.parse(readFileSync(join(ROOT, 'testgame', 'versions', T.in
 const libJars = [];
 const missing = [];
 for (const lib of instJson.libraries || []) {
+  // 只跳过明确用不上的 natives / 非 Windows 平台包（它们里面没有 class，还会拖慢 javac）
+  if (/(natives|linux|macos)/.test(lib.name)) continue;
   const p = lib.downloads && lib.downloads.artifact && lib.downloads.artifact.path
     ? join(LIBS, lib.downloads.artifact.path)
     : mavenToPath(lib.name);
-  if (existsSync(p)) libJars.push(p);
+  if (existsSync(p)) { libJars.push(p); continue; }
+
+  // 兜底：这个实例的 json 里没带全（例如 slf4j / lwjgl 只在别的版本段落里），
+  // 就到 libraries 里按 group:artifact 找任意一个可用版本（编译只需要类型）。
+  const [g, a] = lib.name.split(':');
+  const base = join(LIBS, ...g.split('.'), a);
+  let found = null;
+  if (existsSync(base)) {
+    for (const ver of readdirSync(base)) {
+      const d = join(base, ver);
+      if (!statSync(d).isDirectory()) continue;
+      const jars = readdirSync(d).filter((n) => n.startsWith(a + '-') && n.endsWith('.jar') && !n.includes('-sources'));
+      if (jars.length) { found = join(d, jars[0]); break; }
+    }
+  }
+  if (found) libJars.push(found);
   else missing.push(lib.name);
 }
+// 补几个编译一定会用到、但某些实例 json 里没列（或只列了 natives classifier）的库。
+// 判定「已存在」时必须排除 natives 包：json 里常见 org.lwjgl:lwjgl-glfw:3.3.3:natives-windows，
+// 那是没有 class 的，光凭 group:artifact 出现就跳过补包 → 编译报「程序包 org.lwjgl.glfw 不存在」。
+for (const name of [
+  'org.slf4j:slf4j-api',
+  'org.apache.logging.log4j:log4j-api',
+  'org.lwjgl:lwjgl-glfw:3.3.3',
+  'org.lwjgl:lwjgl:3.3.3',
+  'com.google.code.gson:gson',
+  // Forge 的 json 不含原版那一批 mojang 库（它们在父版本 json 里），而编译要用：
+  'com.mojang:datafixerupper',
+  'com.mojang:brigadier',
+  'com.mojang:authlib',
+  'com.mojang:logging',
+  'com.mojang:blocklist',
+  'com.mojang:patchy',
+  'com.google.guava:guava',
+  'it.unimi.dsi:fastutil',
+  'org.joml:joml',
+  'org.apache.commons:commons-lang3',
+  'commons-io:commons-io',
+]) {
+  const [g, a, ver] = name.split(':');
+  const already = libJars.some((p) => {
+    const base = p.replace(/\\/g, '/').split('/').pop();
+    return !base.includes('natives') && base.startsWith(a + '-') && base.endsWith('.jar');
+  });
+  if (already) continue;
+  const base = join(LIBS, ...g.split('.'), a);
+  if (!existsSync(base)) continue;
+  const dirs = ver ? [join(base, ver)] : readdirSync(base).map((v) => join(base, v)).filter((d) => statSync(d).isDirectory()).sort().reverse();
+  for (const dir of dirs) {
+    if (!existsSync(dir)) continue;
+    const jars = readdirSync(dir).filter((n) => n.startsWith(a + '-') && n.endsWith('.jar') && !n.includes('natives'));
+    if (jars.length) { libJars.push(join(dir, jars[0])); break; }
+  }
+}
+
 if (missing.length) console.log('[warn] 缺库(不影响编译时就看有没有报错): ' + missing.slice(0, 6).join(', ') + (missing.length > 6 ? ' ...' : ''));
 const must = [T.clientJar, T.mcOfficialJar, T.universalJar].filter(Boolean).map((p) => join(LIBS, p));
 for (const m of must) if (!existsSync(m)) { console.error('缺 jar: ' + m); process.exit(1); }
@@ -130,6 +242,7 @@ const fw = (p) => p.replace(/\\/g, '/');
 const argFile = join(work, 'javac.args');
 writeFileSync(argFile, [
   '-nowarn',
+  '-proc:none',
   '-encoding', 'UTF-8',
   '--release', String(T.java),
   '-cp', `"${fw(cp)}"`,
