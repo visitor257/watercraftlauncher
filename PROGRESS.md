@@ -734,3 +734,81 @@ hits 的差异只是字体度量不同，量级和 Fabric 历史值一致。
   （javac --release 8 → jar → remap named→intermediary → dist）。按 MC 版本自动挑 compat 代。
 - `scripts/put-mod.mjs <instance> <jar>`：装进实例（两处都放）。
 - `scripts/verify-fabric-all.mjs`：矩阵跑，`<1.14` 自动跳过 fabric-api。
+
+## 17. 2026-10-28：Forge / NeoForge 1.20.1 ~ 1.20.4（SRG reobf 管线）
+
+Fabric 侧铺完之后转 Forge。这一轮把「SRG 时代」（运行时方法/字段还是 `m_/f_` 的版本）
+打通了，5 个新 target 全部像素验收 PASS。
+
+| target | jar | 实例 | 结果 |
+| --- | --- | --- | --- |
+| forge-20.4 | `watercraftlauncher-forge-1.0.0-mc1.20.4` | V1.20.4-FORGE | PASS C6C6C6 / 19468 / 17 |
+| forge-20.2 | `...-mc1.20.2` | V1.20.2-FORGE | PASS 19468 / 17 |
+| forge-20.1 | `...-mc1.20.1` | V1.20.1-FORGE | PASS 19468 / 17 |
+| neoforge-20.4 | `...-neoforge-1.0.0-mc1.20.4` | V1.20.4-NEOFORGE | PASS 19467 / 17 |
+| neoforge-20.2 | `...-neoforge-1.0.0-mc1.20.2` | V1.20.2-NEOFORGE | PASS 19467 / 17 |
+
+判据照旧：真窗口 `PrintWindow` → 中心 `C6C6C6`、面板色命中 ≈1.9 万、`children=17`。
+
+### 关键判断（先搞清楚「哪一代用什么名字」）
+
+| 时代 | 代表 | 运行时命名 | 怎么编 |
+| --- | --- | --- | --- |
+| SRG | Forge ≤ 1.20.4、NeoForge 20.1 | 类=官方名，方法/字段=`m_/f_` | 先 mojmap 编，**编完 reobf 回 SRG** |
+| 官方名 | Forge ≥ 1.20.6、NeoForge ≥ 20.2 | 全是官方名 | javac 直编，不用 reobf |
+
+> **NeoForge 比 Forge 早一档**：NeoForge 20.2 的 client jar 里已经是 `stacksTo/durability`
+> 这种官方名了，而同一版本的 Forge 49.x 还是 `m_41487_`。别用「1.20.5」当分界线。
+
+### SRG reobf 管线（`scripts/mk-srg-mojmap.mjs`）
+
+1. 取 `de.oceanlabs.mcp:mcp_config:<mc>-<ts>` 里的 `*-mappings.tsrg`（官方 → srg 的类 id）。
+2. 取 Mojang `client_mappings`（version json 的 `downloads.client_mappings.url`）。
+3. 用 obf 名做桥梁算出 **srg → official**，产出 `srg2mojmap.tiny` / `mojmap2srg.tiny`。
+4. `client-<mc>-<ts>-srg.jar` → `client-<mc>-mojmap.jar`，`*-universal.jar` 同样转一份。
+5. `build-neoforge.mjs` 用这两份编，`jar` 打完再 remap 回 SRG（`mojmap2srg.tiny`）。
+
+### 三个格式事实（不搞清楚会白跑一整天）
+
+1. **Mojang 映射是「左=官方名，右=混淆名」**（类、字段、方法一律）。反过来读 → 77xx 个类只有
+   739 个能对上，方法映射只剩 114 条，且会把 `stacksTo` 错配成同 obf 名下的 `durability`。
+2. **tsrg2 的方法描述符用 obf 类名**（`(Lcuk;Lhx;)Z`），不是类 id；而它左边那列「srg 类名」是
+   `net/minecraft/src/C_182965_` 这种 **id**。但运行时 `client-*-srg.jar` 里的类名是**官方包名**，
+   只有成员还叫 `m_/f_` → 类映射是恒等的，真正要换的只有成员。
+3. **tiny v2 的成员行是「描述符在前」**：`m <desc> <src> <dst>`。描述符放末尾时，字段名叫 `a`
+   这种单字符会被 mapping-io 当成描述符列 → `missing name columns`。tiny v1 更不能用
+   （`FIELD owner name desc dst`，我们没有全部字段描述符）。
+
+### 这轮的坑（按耗时）
+
+1. **`Screen#addWidget` 的泛型上限逐版本不同**：1.20.4 是 `GuiEventListener & NarratableEntry`，
+   主源码里 `MainScreen.add(Object)` 传 Object 编不过 → overlay 改成 `addWidget(Object)` + 运行时
+   `instanceof AbstractWidget`，`Page.add` 自己返回泛型。
+2. **`renderBackground` 是版本行为**（Fabric 1.20.1 踩过，这里又踩一次）：1.20.1 的 `Screen#render`
+   **不会**自己调 `renderBackground`，而且方法只有**单参** `renderBackground(GuiGraphics)`；
+   1.20.2+ 才有 `(GuiGraphics,int,int,float)`。`mouseScrolled` 同理：1.20.1 是 3 参（无 horizontal）。
+   → 单独开一份 `modx/shims201/`。
+3. **实例 json 常常漏掉 loader 自己的 jar**：Forge 1.20.1/1.20.2 的 json 里没有 `fmlcore`，
+   但 `libraries` 里躺着 → `@Mod` / `ModLoadingContext` 整包找不到。现在按
+   「目录名 == `<mc>-<loaderVer>` 或 `<loaderVer>`」精确补 classpath。
+4. **NeoForge 20.2/20.4 的 `-client.jar` 只有被改过的类**，完整原版要另外给（`client-<mc>-mojmap.jar`），
+   否则 `net.minecraft.core.registries` 都不认识。
+5. **`mandatory` 字段**：Forge 一律要；NeoForge **20.1~20.4（FML 1.x/2.x）也要**，20.6+（FML 3/4）写了
+   反而报未知字段。
+6. **`loaderVersion` 别按 MC 版本猜**：NeoForge 20.4 是 FML `[2,)`，20.2 是 `[1,)` → 猜错报
+   `Missing language javafml version [2,) ... found 1.0`。
+7. **`BuildCreativeModeTabContentsEvent` 在 mod bus**：挂到 `NeoForge.EVENT_BUS`（game bus）会
+   `IllegalArgumentException: ... not valid for this bus`，整个 mod 变「broken mod state」。
+8. **NeoForge 20.x 的 `@EventBusSubscriber` 各家不一致**：20.1 没有 `Bus` 枚举、20.4 叫 `FORGE` 不叫
+   `GAME` → 干脆丢掉注解，构造函数里 `NeoForge.EVENT_BUS.addListener(...)` + `modBus.addListener(...)`。
+9. **`verify-gui-one.mjs` 的抓图会卡死**：`capture-window.ps1` 偶发阻塞在 PrintWindow，
+   `execFileSync` 没超时 → 整个验收挂住却不出结论。已加 `timeout: 15000`。
+10. **抓图偶发 `no-window`**：同一次运行 `children=17`（界面确实画了）但 PrintWindow 拿不到窗口，
+    重跑一次就过。看到 `no-window` 且 children=17 先重跑，别急着改代码。
+
+### 没做的
+
+- **NeoForge 20.1**：它就是 Forge 47 换皮——universal jar 里的包名还是 `net.minecraftforge.*`，
+  FML 又是独立版本号（47.1.47 / 1.0.16）。要做得另开一路 overlay，收益不大，暂缓。
+- **Forge 1.19.4 / 1.18.2 / 1.17.1 / 1.16.5**：SRG 管线本身能复用，但这些版本没有 `GuiGraphics`，
+  渲染要走 `PoseStack` → 需要一套和 Fabric 侧 `ui/Ctx` 同级的 mojmap 版适配层，工作量在 compat 上，不在管线。

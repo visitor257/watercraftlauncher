@@ -104,13 +104,14 @@ if (!text.includes('screen=MAIN chrome')) {
 }
 
 // 3) 等首帧稳定（atlas / 全景背景要几秒），再抓窗口
+// 坑：capture-window.ps1 偶发卡住（PrintWindow 阻塞），必须给 timeout，否则整个验收挂死却不出结论。
 await sleep(4000);
 const png = join(LOGS, `gui-${instance}.png`);
 let shot = null;
 for (let i = 0; i < 30; i++) {
   try {
     const raw = execFileSync('powershell', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File',
-      join(ROOT, 'scripts', 'capture-window.ps1'), '-Out', png], { encoding: 'utf8' }).trim();
+      join(ROOT, 'scripts', 'capture-window.ps1'), '-Out', png], { encoding: 'utf8', timeout: 15000 }).trim();
     shot = JSON.parse(raw.split(/\r?\n/).pop());
     if (shot.ok) break;
   } catch (e) {

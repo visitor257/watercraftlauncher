@@ -27,7 +27,8 @@ public abstract class Page {
 
     /** 往当前 Screen 上加控件。 */
     protected <T extends AbstractWidget> T add(T w) {
-        return host.add(w);
+        host.add(w);
+        return w;
     }
 
     public void render(Ctx ctx, int mouseX, int mouseY, float delta) { }

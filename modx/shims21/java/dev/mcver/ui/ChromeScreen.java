@@ -57,9 +57,21 @@ public abstract class ChromeScreen extends Screen {
         return super.mouseScrolled(mouseX, mouseY, horizontal, vertical);
     }
 
-    /** 加一个控件。别名：{@code addRenderableWidget}。 */
-    protected <T extends AbstractWidget> T addWidget(T w) {
-        addRenderableWidget(w);
+    /** 加一个控件。别名：{@code addRenderableWidget}。
+     *
+     * <p>参数故意收 {@code Object}：主源码里 {@code MainScreen.add(Object)} / {@code Page.add} 是
+     * 按 Fabric 那套（yarn 的 {@code addDrawableChild} 收 ClickableWidget 子类）写的，
+     * 1.20.4 的 {@code Screen#addWidget} 泛型上限是 {@code GuiEventListener & NarratableEntry}，
+     * 传 Object 编不过。在这里收窄成运行时判断，其他 target 行为不变。 */
+    protected void addWidget(Object w) {
+        if (w instanceof AbstractWidget aw) {
+            addRenderableWidget(aw);
+        }
+    }
+
+    /** 泛型版：返回原对象，方便链式写法。 */
+    protected <T extends AbstractWidget> T add(T w) {
+        addWidget(w);
         return w;
     }
 

@@ -36,4 +36,9 @@ public final class Btn {
             return inner.build();
         }
     }
+
+    /** 改按钮文案（主源码统一走这里：1.20.4 的 setMessage 收 Component，直接给 String 编不过）。 */
+    public static void label(Button button, String text) {
+        button.setMessage(Component.literal(text));
+    }
 }

@@ -46,17 +46,16 @@ const TARGETS = {
     jarName: 'watercraftlauncher-neoforge-1.0.0-mc1.21.1',
   },
 
-  // TODO(1.16~1.20.4)：这些版本 Forge 运行时**方法/字段还是 SRG 名**（m_91087_ / f_12345_），
-  // 只有类名是官方名。所以不能用 javac 直编那套，得先把 srg 包转成官方名再编、编完再 reobf 回 srg。
-  // 详见 docs 里的说明 / PROGRESS.md 的「下一步」。下面这个 target 目前会编译失败（预期）。
-  'forge-20.4-legacy': {
+  // 1.20.2 ~ 1.20.4（Forge 49/48）：运行时还是 SRG 名（m_/f_），所以走「先 mojmap 编、再 reobf 回 SRG」。
+  // 编译用 modx/srg/<mc>/ 里由 scripts/mk-srg-mojmap.mjs 生成的两份 mojmap jar。
+  'forge-20.4': {
     mc: '1.20.4',
     java: 17,
     instance: 'V1.20.4-FORGE',
-    clientJar: 'net/minecraftforge/forge/1.20.4-49.2.13/forge-1.20.4-49.2.13-client.jar',
-    universalJar: 'net/minecraftforge/forge/1.20.4-49.2.13/forge-1.20.4-49.2.13-universal.jar',
+    srg: true,
+    loaderVer: '49.2.13',
     modsToml: 'META-INF/mods.toml',
-    loaderRange: '[24,)',
+    loaderRange: '[47,)',
     packFormat: 22,
     loaderDep: ['forge', '[49,)'],
     mcRange: '[1.20.4,1.20.5)',
@@ -66,6 +65,81 @@ const TARGETS = {
     jarName: 'watercraftlauncher-forge-1.0.0-mc1.20.4',
   },
 
+  // ---- SRG 时代（1.20.1 ~ 1.20.4）：先 mojmap 编、再 reobf ----
+  'forge-20.2': {
+    mc: '1.20.2',
+    java: 17,
+    instance: 'V1.20.2-FORGE',
+    srg: true,
+    loaderVer: '48.1.0',
+    modsToml: 'META-INF/mods.toml',
+    loaderRange: '[47,)',
+    packFormat: 18,
+    loaderDep: ['forge', '[48,)'],
+    mcRange: '[1.20.2,1.20.3)',
+    sources: ['mod/src/main/java'],
+    overlay: ['shims21/java', 'forge21/java'],
+    resources: ['mod/src/main/resources'],
+    jarName: 'watercraftlauncher-forge-1.0.0-mc1.20.2',
+  },
+
+  'forge-20.1': {
+    mc: '1.20.1',
+    java: 17,
+    instance: 'V1.20.1-FORGE',
+    srg: true,
+    loaderVer: '47.4.28',
+    modsToml: 'META-INF/mods.toml',
+    loaderRange: '[47,)',
+    packFormat: 15,
+    loaderDep: ['forge', '[47,)'],
+    mcRange: '[1.20.1,1.20.2)',
+    sources: ['mod/src/main/java'],
+    overlay: ['shims201/java', 'forge21/java'],
+    resources: ['mod/src/main/resources'],
+    jarName: 'watercraftlauncher-forge-1.0.0-mc1.20.1',
+  },
+
+  // NeoForge 20.2+ 的 client jar 已经是**官方名**（和 20.6/21.1 一样），不用 reobf。
+  'neoforge-20.4': {
+    mc: '1.20.4',
+    java: 17,
+    instance: 'V1.20.4-NEOFORGE',
+    mandatory: true,
+    extraCp: ['client-1.20.4-mojmap.jar'],
+    clientJar: 'net/neoforged/neoforge/20.4.253/neoforge-20.4.253-client.jar',
+    universalJar: 'net/neoforged/neoforge/20.4.253/neoforge-20.4.253-universal.jar',
+    modsToml: 'META-INF/mods.toml',
+    loaderRange: '[2,)',
+    packFormat: 22,
+    loaderDep: ['neoforge', '[20.4.0,)'],
+    mcRange: '[1.20.4,1.20.5)',
+    sources: ['mod/src/main/java'],
+    overlay: ['shims21/java', 'neoforge20/java'],
+    resources: ['mod/src/main/resources'],
+    jarName: 'watercraftlauncher-neoforge-1.0.0-mc1.20.4',
+  },
+
+  'neoforge-20.2': {
+    mc: '1.20.2',
+    java: 17,
+    instance: 'V1.20.2-NEOFORGE',
+    mandatory: true,
+    extraCp: ['client-1.20.2-mojmap.jar'],
+    clientJar: 'net/neoforged/neoforge/20.2.93/neoforge-20.2.93-client.jar',
+    universalJar: 'net/neoforged/neoforge/20.2.93/neoforge-20.2.93-universal.jar',
+    modsToml: 'META-INF/mods.toml',
+    loaderRange: '[1,)',
+    packFormat: 18,
+    loaderDep: ['neoforge', '[20.2.0,)'],
+    mcRange: '[1.20.2,1.20.3)',
+    sources: ['mod/src/main/java'],
+    overlay: ['shims21/java', 'neoforge20/java'],
+    resources: ['mod/src/main/resources'],
+    jarName: 'watercraftlauncher-neoforge-1.0.0-mc1.20.2',
+  },
+  // TODO(NeoForge 20.1)：它其实就是 Forge 47 换皮——universal jar 里的包名还是 net.minecraftforge.*，
+  // 而且 FML 是独立版本号（47.1.47 / 1.0.16）。要支持得另开一路 overlay，收益不大，暂缓。
   'forge-21.1': {
     mc: '1.21.1',
     java: 21,
@@ -117,7 +191,7 @@ const TARGETS = {
     loaderDep: ['neoforge', '[20.6.0,)'],
     mcRange: '[1.20.6,1.21)',
     sources: ['mod/src/main/java'],
-    overlay: ['shims21/java', 'neoforge21/java'],
+    overlay: ['shims21/java', 'neoforge20/java'],
     resources: ['mod/src/main/resources'],
     jarName: 'watercraftlauncher-neoforge-1.0.0-mc1.20.6',
   },
@@ -163,6 +237,9 @@ const missing = [];
 for (const lib of instJson.libraries || []) {
   // 只跳过明确用不上的 natives / 非 Windows 平台包（它们里面没有 class，还会拖慢 javac）
   if (/(natives|linux|macos)/.test(lib.name)) continue;
+  // SRG 模式下编译 classpath 只能用 mojmap 版，SRG 版的 MC/loader client 包必须踢掉
+  // （否则同一个类在 SRG 名和官方名各出现一次，编译器会挑到 SRG 那份）
+  if (T.srg && (lib.name.startsWith('net.minecraft:client:') || /:client$/.test(lib.name))) continue;
   const p = lib.downloads && lib.downloads.artifact && lib.downloads.artifact.path
     ? join(LIBS, lib.downloads.artifact.path)
     : mavenToPath(lib.name);
@@ -222,8 +299,62 @@ for (const name of [
   }
 }
 
+// SRG 时代的实例 json 常常漏掉 loader 自己的 jar（实测 Forge 1.20.1/1.20.2 的 json 里没有
+// fmlcore，但 libraries 里躺着），@Mod / ModLoadingContext 就整包找不到。
+// 按「目录名 == <mc>-<loaderVer> 或 <loaderVer>」精确补，不跨版本乱抓。
+if (T.srg) {
+  const stamps = new Set([`${T.mc}-${T.loaderVer}`, T.loaderVer]);
+  for (const root of [join(LIBS, 'net', 'minecraftforge'), join(LIBS, 'net', 'neoforged')]) {
+    if (!existsSync(root)) continue;
+    for (const art of readdirSync(root)) {
+      const artDir = join(root, art);
+      if (!statSync(artDir).isDirectory()) continue;
+      for (const ver of readdirSync(artDir)) {
+        if (!stamps.has(ver)) continue;
+        const vDir = join(artDir, ver);
+        if (!statSync(vDir).isDirectory()) continue;
+        for (const f of readdirSync(vDir)) {
+          if (!f.endsWith('.jar') || /sources|javadoc|natives/.test(f)) continue;
+          const full = join(vDir, f);
+          if (!libJars.includes(full)) libJars.push(full);
+        }
+      }
+    }
+  }
+}
+
 if (missing.length) console.log('[warn] 缺库(不影响编译时就看有没有报错): ' + missing.slice(0, 6).join(', ') + (missing.length > 6 ? ' ...' : ''));
-const must = [T.clientJar, T.mcOfficialJar, T.universalJar].filter(Boolean).map((p) => join(LIBS, p));
+const srgDir = join(MODX, 'srg', T.mc);
+const mojClient = join(srgDir, `client-${T.mc}-mojmap.jar`);
+const mojUniversal = join(srgDir, `universal-${T.loaderVer}-mojmap.jar`);
+const must = (T.srg
+  ? [mojClient, mojUniversal]
+  : [T.clientJar, T.mcOfficialJar, T.universalJar].filter(Boolean).map((p) => join(LIBS, p)));
+// 有的 target 还需要「完整 mojmap 原版」（NeoForge 20.2/20.4 的 client jar 只含被改过的类）
+for (const extra of T.extraCp || []) {
+  const ejar = join(srgDir, extra);
+  if (existsSync(ejar)) must.push(ejar);
+  else console.log('[warn] extraCp 缺: ' + ejar);
+}
+// NeoForge 20.1 的 FML 是独立版本号（47.1.47 / 1.0.16），实例 json 里没有列全 → 显式补
+if (T.srg && T.fmlVers) {
+  for (const root of [join(LIBS, 'net', 'neoforged', 'fancymodloader'), join(LIBS, 'net', 'neoforged')]) {
+    if (!existsSync(root)) continue;
+    const arts = root.endsWith('fancymodloader') ? readdirSync(root).map((a) => join(root, a)) : [join(root, 'bus')];
+    for (const art of arts) {
+      if (!existsSync(art) || !statSync(art).isDirectory()) continue;
+      for (const v of T.fmlVers) {
+        const vDir = join(art, v);
+        if (!existsSync(vDir)) continue;
+        for (const f of readdirSync(vDir)) {
+          if (!f.endsWith('.jar') || /sources|javadoc|natives/.test(f)) continue;
+          const full = join(vDir, f);
+          if (!libJars.includes(full)) libJars.push(full);
+        }
+      }
+    }
+  }
+}
 for (const m of must) if (!existsSync(m)) { console.error('缺 jar: ' + m); process.exit(1); }
 
 const cp = must.concat(libJars).join(';');
@@ -278,7 +409,8 @@ const depBlock = (modId, range) => [
   `modId="${modId}"`,
   // Forge 的 mods.toml 要求 mandatory 字段（NeoForge 去掉了它）；两边都写会被 NeoForge 报未知字段，
   // 所以按 loader 分流（实测：缺 mandatory 会让 Forge 直接拒绝加载这个 jar）。
-  ...(T.loaderDep[0] === 'forge' ? ['mandatory=true'] : []),
+  // Forge 一律要；NeoForge 20.1~20.4（FML 1.x/2.x）也要，20.6+（FML 3/4）写了反而报未知字段
+  ...(T.loaderDep[0] === 'forge' || T.mandatory ? ['mandatory=true'] : []),
   'type="required"',
   `versionRange="${range}"`,
   'ordering="NONE"',
@@ -301,7 +433,36 @@ ${depBlock(T.loaderDep[0], T.loaderDep[1])}${depBlock('minecraft', T.mcRange)}`,
 
 mkdirSync(outDir, { recursive: true });
 const jarPath = join(outDir, T.jarName + '.jar');
-rmSync(jarPath, { force: true });
+const stagesJar = T.srg ? join(work, 'raw.jar') : jarPath;
+rmSync(stagesJar, { force: true });
 const jarExe = join(process.env.JAVA_HOME || 'C:/Program Files/Java/jdk-21.0.7', 'bin', 'jar.exe');
-execFileSync(jarExe, ['--create', '--file', jarPath, '-C', stages, '.'], { stdio: 'inherit' });
+execFileSync(jarExe, ['--create', '--file', stagesJar, '-C', stages, '.'], { stdio: 'inherit' });
+
+// SRG 时代：产出的字节码是官方名，运行时只认 SRG → reobf 一份
+if (T.srg) {
+  rmSync(jarPath, { force: true });
+  const trCp = [
+    ...['asm', 'asm-analysis', 'asm-commons', 'asm-tree', 'asm-util'].map((m) => moduleJar('org.ow2.asm/' + m, '9.9')),
+    moduleJar('net.fabricmc/mapping-io', '0.8.0'),
+    moduleJar('net.fabricmc/tiny-remapper', '0.12.0'),
+  ].join(';');
+  const javaExe = join(process.env.JAVA_HOME || 'C:/Program Files/Java/jdk-21.0.7', 'bin', 'java.exe');
+  execFileSync(javaExe, [
+    '-cp', trCp, 'net.fabricmc.tinyremapper.Main',
+    stagesJar, jarPath,
+    join(srgDir, 'mojmap2srg.tiny'), 'mojmap', 'srg',
+    mojClient, mojUniversal, ...libJars,
+  ], { stdio: 'inherit', maxBuffer: 1 << 28 });
+}
 console.log('OK ' + jarPath);
+
+// Gradle 缓存里的模块 jar（tiny-remapper 的依赖）
+function moduleJar(module, ver) {
+  const base = join(process.env.USERPROFILE, '.gradle', 'caches', 'modules-2', 'files-2.1', ...module.split('/'), ver);
+  for (const f of readdirSync(base)) {
+    const sub = join(base, f);
+    if (!statSync(sub).isDirectory()) continue;
+    for (const g of readdirSync(sub)) if (g.endsWith('.jar') && !/sources|javadoc/.test(g)) return join(sub, g);
+  }
+  throw new Error('找不到 ' + module + '@' + ver);
+}
