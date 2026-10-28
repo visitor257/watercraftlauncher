@@ -35,6 +35,7 @@ public final class McVerClient {
     private static Object lastScreen;
     /** M 键的上一帧状态，用来做「按下的那一瞬」判定。 */
     private static boolean mDown;
+    private static boolean usePrev;
     private static boolean inited;
 
     private McVerClient() { }
@@ -52,15 +53,28 @@ public final class McVerClient {
 
         if (client.player == null) {
             mDown = false;
+            usePrev = false;
             return;
         }
         // 界面上开着别的屏（聊天、背包、暂停菜单）时不要抢输入
         if (client.screen != null) {
             mDown = isMDown(client);
+            usePrev = client.options.keyUse.isDown();
             return;
         }
 
-        boolean rightClick = client.options.keyUse.consumeClick() && holdingTool(client);
+        // ---- 右键判定：不能只看 consumeClick()
+        // 原版 Minecraft.handleInputEvents() 每 tick 都用
+        //     while (keyUse.consumeClick()) ? 等价于 while(wasPressed()) -> doItemUse();
+        // 把按下计数（timesPressed）全部消费掉；我们的 tick 回调在它之后，
+        // consumeClick() 因此永远是 false —— 表现就是「拿着物品右键没反应」。
+        // 改成对「按住」状态做边沿检测：KeyBinding.isPressed() 读 pressed 字段，
+        // 原版只 setPressed 不清它，所以 tick 末尾照样能看见。
+        boolean clicked = client.options.keyUse.consumeClick();
+        boolean useDown = client.options.keyUse.isDown();
+        boolean edge = useDown && !usePrev;
+        usePrev = useDown;
+        boolean rightClick = (clicked || edge) && holdingTool(client);
 
         boolean down = isMDown(client);
         boolean mPressed = down && !mDown;

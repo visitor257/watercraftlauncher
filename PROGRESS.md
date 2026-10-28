@@ -1551,3 +1551,135 @@ node scripts/rebuild-all.mjs     # 31/31 OK，publish 23 个 jar -> dist
   还有「只在 osx 10.5.x 上用」这种**版本区间**规则。别按「allow 就是通吃」去想当然。
 - 探针报 `missing files=0` 不代表 classpath 是对的；`classpath entries=N` 这个数字也要一起看
   （b1.7.3 正常是 9，出 bug 时是 6）。
+
+## 29. 2026-10-29（第十二轮）：右键打不开界面 —— 判据覆盖错了路径
+
+用户实测：1.21.4 上拿着「版本下载器」右键**没反应**。而 39 个 jar 的像素验收全是绿的。
+
+### 29.1 根因：`wasPressed()` / `consumeClick()` 被原版先吃掉了
+
+`McVerClient` 每 tick 轮询：
+
+```java
+boolean rightClick = client.options.useKey.wasPressed() && holdingTool(client);   // Fabric
+boolean rightClick = client.options.keyUse.consumeClick() && holdingTool(client); // Forge / NeoForge
+```
+
+**这行永远返回 false。** 原版 `Minecraft.handleInputEvents()` 每 tick 都会跑：
+
+```java
+while (this.options.keyUse.wasPressed()) this.doItemUse();
+```
+
+`wasPressed()` 的字节码是 `if (timesPressed == 0) return false; timesPressed--; return true;`
+（javap 1.21.4 已核对）。它把按下计数**全部消费干净**，而我们的 tick 回调
+（Fabric `END_CLIENT_TICK` / Forge `TickEvent.Phase.END` / NeoForge `ClientTickEvent.Post`）
+**都在它之后**执行，此时 `timesPressed` 已经是 0。
+
+`consumeClick()` 同理 —— 它读的也是 `timesPressed`。
+
+### 29.2 为什么 39 个 jar 的验收没抓到
+
+验收走的是 `MCVER_OPEN_GUI=1` 自检钩子：进 `TitleScreen` 就自动 `openMain()`。
+**这条路根本不经过右键。** 所以 `C6C6C6 / children=17` 只证明了「界面能画」，
+没有一条证明了「物品能用」。
+
+> **教训（写进规矩）：验收判据必须覆盖用户真正走的那条路。**
+> 自检后门只能证明「渲染没坏」，不能当功能证据。
+
+### 29.3 修法：对「按住」状态做边沿检测
+
+`KeyBinding.isPressed()`（Yarn）/ `isDown()`（mojmap）读的是 `pressed` 字段，
+原版**只 set 从不 clear**，所以 tick 末尾仍然可见：
+
+```java
+private static boolean usePrev;          // 新增字段
+
+if (client.player == null) { mDown = false; usePrev = false; return; }
+if (client.currentScreen != null) {       // mojmap: client.screen
+    mDown = isMDown(client);
+    usePrev = client.options.useKey.isPressed();    // mojmap: isDown()
+    return;
+}
+
+boolean clicked  = client.options.useKey.wasPressed();   // 保留作保险
+boolean useDown  = client.options.useKey.isPressed();
+boolean edge     = useDown && !usePrev;
+usePrev = useDown;
+boolean rightClick = (clicked || edge) && holdingTool(client);
+```
+
+`clicked` 留着是因为**不同加载器的 tick 事件相对 `handleInputEvents` 的先后并不一致**：
+在其前执行的，`wasPressed()` 命中；在其后执行的，`edge` 命中。两种顺序都不漏。
+
+### 29.4 命名对照（这次踩了）
+
+| 语义 | Yarn | mojmap |
+| --- | --- | --- |
+| 右键绑定 | `options.useKey` | `options.keyUse` |
+| 按住中 | `isPressed()` | **`isDown()`** |
+| 当前屏 | `client.currentScreen` | `client.screen` |
+| 窗口句柄 | `getWindow().getHandle()` | `getWindow().getWindow()` |
+
+第一次写成 `isPressed()`，Forge / NeoForge 集体报 `找不到符号: 方法 isPressed()`，才改的 `isDown()`。
+
+### 29.5 波及面：10 个文件（不是只有 1.21.4）
+
+- `mod/src/main/java/dev/mcver/McVerClient.java`（Fabric 1.21+ 主源码）
+- `modx/{forge14,forge15,forge16,forge17,forge18,forge19,forge21}/java/dev/mcver/McVerClient.java`
+- `modx/{neoforge20,neoforge21}/java/dev/mcver/McVerClient.java`
+
+**没受影响的**（走的是正规回调，不依赖按键状态）：
+Fabric ≤1.20 用 `UseItemCallback`；Forge 1.7.10 / 1.8.9 / 1.9.4 / 1.10.2 / 1.11.2 / 1.12.2
+用物品自己的 `onItemRightClick`（`McVerItem#method_13649` / `method_11373` / `onStartUse`）。
+
+### 29.6 新验收工具：`ProbeRightClick`
+
+之前没有任何工具走过右键，所以做了这个：
+
+```bash
+java -cp tools\probe\out dev.mcver.probe.ProbeRightClick testgame <实例> <秒> <存档名>
+# 或
+node scripts/verify-rightclick.mjs <实例> [--world 新的世界] [--timeout 190]
+```
+
+流程（全自动，无需人碰键鼠）：
+
+1. `Launcher.plan()` → `launch(..., extraGameArgs)` 追加 `--quickPlaySingleplayer <存档>` 直接进世界；
+   为此给 `Launcher.launch` 加了第 6 个参数重载（正常启动传 `null`，签名不兼容改动已避开）。
+2. 等日志 `Setting user` → 再等 25s 让区块加载。
+3. 一条 PowerShell 里发完整输入序列（不是每键一个进程，那样时序不可控）：
+   `WM_KEYDOWN/UP('T')` → 逐字符 `WM_CHAR` 敲 `/give @s mcver:download_tool` → `WM_KEYDOWN/UP(Enter)`
+   → 等 2s（物品进背包）→ `WM_RBUTTONDOWN` + `WM_RBUTTONUP`。
+   GLFW 的 win32 后端在 `WndProc` 里处理这些消息，`PostMessage` 能真送到回调，**不需要窗口在前台**。
+4. **只认日志 `mcver: 右键打开启动器`**（这是 `McVerClient` 右键分支独占的字符串）。
+5. `PrintWindow` 抓图 + 中心像素 / 面板色统计。
+
+### 29.7 三个探针的两个坑（都修了）
+
+1. **日志编码**：游戏用平台默认编码写日志（中文 Windows 上是 **GBK**）。用
+   `Files.readAllLines(UTF_8)` 不抛异常，只是把中文换成 `U+FFFD` → 按中文标记 grep 永远 false。
+   第一次就是这样：界面明明开了，探针报 FAIL。现在先 UTF-8 严格解码（`CodingErrorAction.REPORT`），
+   失败再退 GBK。
+2. **抓图**：`Add-Type -MemberDefinition` 里带 `struct` 定义编译不过
+   （`找不到类型或命名空间 user32`）—— `scripts/verify-gui.ps1` 用的是 `Add-Type -TypeDefinition`
+   整类定义。另外路径别手写反斜杠转义（写成 `\\\\` 会变成双反斜杠，`Save()` 报找不到路径，
+   被 catch 吃掉还照样打印 `png=...`，**骗人**）。现在落一个临时 `.ps1` 用 `-File` 跑，
+   并且**先断言文件真的存在且 >1KB** 才打印路径。
+
+### 29.8 实测结果（全部真右键，不是自检钩子）
+
+| 目标 | 日志证据 | 抓图 |
+| --- | --- | --- |
+| Forge 1.21.4 | `mcver: 右键打开启动器` → `screen=MAIN` | 中心 `C6C6C6`，面板色命中 75218 |
+| Fabric 1.21.4 | 同上 | 中心 `717171`（落在列表按钮上），命中 27204 |
+| NeoForge 20.6.144 | 同上 | 抓图 OK |
+
+全量重建 31/31 成功，`publish` 23 个 jar → `dist/`（仍是 39 个 jar）。
+
+### 29.9 规矩补充
+
+- **新增/修改任何「输入触发」功能，必须用 `ProbeRightClick` 那类探针走真实输入验证**，
+  不许用 `MCVER_OPEN_GUI` 之类自检钩子代替。
+- 日志 grep 一律按 GBK 回退解码，别假设 UTF-8。
+- 截图成功与否要断言文件存在，不能只信打印的路径。

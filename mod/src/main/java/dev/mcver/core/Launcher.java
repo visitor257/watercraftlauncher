@@ -755,6 +755,15 @@ public final class Launcher {
     }
 
     public static Running launch(Plan p, String player, String uuid, String token, int memMb) throws IOException {
+        return launch(p, player, uuid, token, memMb, null);
+    }
+
+    /**
+     * @param extraGameArgs 追加到游戏参数末尾的额外参数（例如 {@code --quickPlaySingleplayer <存档>}）。
+     *                      正常启动时传 {@code null}。
+     */
+    public static Running launch(Plan p, String player, String uuid, String token, int memMb,
+                                 List<String> extraGameArgs) throws IOException {
         List<String> notes = new ArrayList<>();
         Path java = pickJava(p, notes);
         if (java == null) throw new IOException("找不到可用的 Java");
@@ -787,6 +796,9 @@ public final class Launcher {
                     .replace("${player}", player)
                     .replace("${uuid}", uuid)
                     .replace("${token}", token));
+        }
+        if (extraGameArgs != null) {
+            for (String a : extraGameArgs) if (a != null && !a.isEmpty()) cmd.add(a);
         }
 
         Path logs = p.runDir.resolve("logs");

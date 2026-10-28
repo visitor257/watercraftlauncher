@@ -23,6 +23,7 @@ public final class McVerClient {
     private static boolean autoOpened;
     private static Object lastScreen;
     private static boolean mDown;
+    private static boolean usePrev;
     private static boolean inited;
 
     private McVerClient() { }
@@ -48,7 +49,22 @@ public final class McVerClient {
             return;
         }
 
-        boolean rightClick = client.options.keyUse.consumeClick() && holdingTool(client);
+        // ---- 右键判定：不能只看 wasPressed()/consumeClick()
+        // 原版 Minecraft.handleInputEvents() 每 tick 都用
+        //     while (keyUse.wasPressed()) doItemUse();
+        // 把按下计数（timesPressed）全部消费掉；而我们的 tick 回调在它之后，
+        // 那行 wasPressed() 因此永远是 false —— 表现就是「拿着物品右键没反应」。
+        // （javap 1.21.4 已确认：wasPressed() 会 timesPressed--，handleInputEvents 里
+        //   useKey.wasPressed() → doItemUse() 就在同一个 tick 内跑完。）
+        // 改成对「按住」状态做边沿检测：KeyBinding.isPressed() 读的是 pressed 字段，
+        // 原版只 setPressed 不清它，所以 tick 末尾照样能看见。
+        // 保留 wasPressed() 只作保险：万一某个加载器的 tick 事件早于 handleInputEvents，
+        // 那一次也能命中（两种顺序都不会漏）。
+        boolean clicked = client.options.keyUse.consumeClick();
+        boolean useDown = client.options.keyUse.isDown();
+        boolean edge = useDown && !usePrev;
+        usePrev = useDown;
+        boolean rightClick = (clicked || edge) && holdingTool(client);
 
         boolean down = isMDown(client);
         boolean mPressed = down && !mDown;
