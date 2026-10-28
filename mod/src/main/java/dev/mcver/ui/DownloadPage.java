@@ -41,7 +41,8 @@ public class DownloadPage extends Page {
     private List<VersionList.V> shown = dev.mcver.core.Jdk.emptyList();
     private String query = "";
     private int page = 0;
-    private boolean snapshots = false;
+    /** 当前页签：正式 / 快照 / 远古 / 愚人节（{@link VersionList#CAT_LABELS}）。 */
+    private int cat = VersionList.CAT_RELEASE;
     private volatile boolean loadingVersions = false;
     private volatile String versionError;
     private boolean versionsRequested = false;
@@ -89,8 +90,9 @@ public class DownloadPage extends Page {
 
     // ================================================================ 几何
 
-    private int listTop() { return host.contentY() + 22; }
+    private int listTop() { return host.contentY() + 39; }
     private int listRows() { return Math.max(1, (host.contentBottom() - 16 - listTop()) / 15); }
+    private int catTop() { return host.contentY() + 20; }
     private int footY() { return host.contentBottom() - 15; }
 
     // 详情页各行
@@ -134,6 +136,7 @@ public class DownloadPage extends Page {
     }
 
     private boolean autoDetailDone;
+    private boolean autoCatDone;
 
     // ---------------------------------------------------------------- 列表
 
@@ -141,7 +144,16 @@ public class DownloadPage extends Page {
         int x = host.contentX();
         int w = host.contentW();
 
-        searchField = Field.of(this.tr(), x, host.contentY() + 1, w - 54, 16, "搜索");
+        // 自检：MCVER_CAT=愚人节 直接从某个分类进去
+        if (env("MCVER_CAT") != null && !autoCatDone) {
+            autoCatDone = true;
+            String wantCat = env("MCVER_CAT");
+            for (int i = 0; i < VersionList.CAT_LABELS.length; i++) {
+                if (VersionList.CAT_LABELS[i].equals(wantCat)) cat = i;
+            }
+        }
+
+        searchField = Field.of(this.tr(), x, host.contentY() + 1, w, 16, "搜索版本号");
         searchField.setMaxLength(32);
         searchField.setText(query);
         searchField.setChangedListener(s -> {
@@ -151,11 +163,19 @@ public class DownloadPage extends Page {
         });
         add(searchField);
 
-        add(Btn.builder(Txt.of(snapshots ? "快照 ✓" : "快照"), b -> {
-            snapshots = !snapshots;
-            page = 0;
-            rebuild();
-        }).dimensions(x + w - 50, host.contentY() + 1, 50, 16).build());
+        // 四个分类页签：正式 / 快照 / 远古 / 愚人节（像下面的加载器选择那样，选一个再列对应版本）
+        int cw = (w - 3 * 3) / 4;
+        for (int i = 0; i < VersionList.CAT_LABELS.length; i++) {
+            final int c = i;
+            boolean on = c == cat;
+            String label = on ? "▶" + VersionList.CAT_LABELS[c] : VersionList.CAT_LABELS[c];
+            if (!all.isEmpty()) label = label + " " + VersionList.count(all, c);
+            add(Btn.builder(Txt.of(label), b -> {
+                cat = c;
+                page = 0;
+                rebuild();
+            }).dimensions(x + i * (cw + 3), catTop(), cw, 15).build());
+        }
 
         startVersionLoad();
         int rows = listRows();
@@ -195,15 +215,7 @@ public class DownloadPage extends Page {
 
     private String rowLabel(VersionList.V v, int maxW) {
         // 按用户要求：已经装过的版本不再打勾，列表保持干净（需要判断装没装看启动页/版本页）
-        String tv = v.type() == null ? "" : v.type();
-        String type;
-        switch (tv) {
-            case "release": type = "正式"; break;
-            case "snapshot": type = "快照"; break;
-            case "old_beta": type = "b1"; break;
-            case "old_alpha": type = "a1"; break;
-            default: type = v.type(); break;
-        }
+        String type = VersionList.CAT_LABELS[VersionList.catOf(v)];
         String date = v.releaseTime() == null || v.releaseTime().length() < 10
                 ? "" : v.releaseTime().substring(0, 10);
         return trim(v.id() + "    " + type + "    " + date, maxW);
@@ -242,8 +254,10 @@ public class DownloadPage extends Page {
     }
 
     private void recompute() {
-        shown = VersionList.filter(all, query, snapshots);
+        shown = VersionList.filter(all, query, cat);
         if (page > pages() - 1) page = Math.max(0, pages() - 1);
+        McVerMod.LOGGER.info("mcver: 分类={} 搜索={} 共={} 个（总 {}）",
+                VersionList.CAT_LABELS[cat], query.isEmpty() ? "-" : query, shown.size(), all.size());
     }
 
     // ---------------------------------------------------------------- 详情
@@ -607,7 +621,10 @@ public class DownloadPage extends Page {
         } else if (loadingVersions) {
             text(ctx, "正在获取版本列表…", x, listTop(), MainScreen.C_DIM);
         } else if (shown.isEmpty()) {
-            text(ctx, "没有匹配的版本", x, listTop(), MainScreen.C_DIM);
+            text(ctx, query.trim().isEmpty()
+                    ? "这个分类里没有版本"
+                    : "「" + VersionList.CAT_LABELS[cat] + "」里没有匹配的版本",
+                    x, listTop(), MainScreen.C_DIM);
         }
 
         text(ctx, (page + 1) + " / " + pages() + "   共 " + shown.size() + " 个", x + 52, footY() + 4,
@@ -619,7 +636,7 @@ public class DownloadPage extends Page {
         int w = host.contentW();
 
         if (picked != null) {
-            String type = "release".equals(picked.type()) ? "正式版" : String.valueOf(picked.type());
+            String type = VersionList.CAT_LABELS[VersionList.catOf(picked)] + "版";
             String date = picked.releaseTime() == null || picked.releaseTime().length() < 10
                     ? "" : picked.releaseTime().substring(0, 10);
             text(ctx, picked.id() + "   " + type + "   " + date, x + 50, yBack() + 4, MainScreen.C_TEXT);

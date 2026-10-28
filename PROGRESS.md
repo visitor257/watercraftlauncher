@@ -1370,3 +1370,102 @@ overlay 是**有序列表**，每个目录可以带自己的 `resources/`（mcmo
 mods 目录被清过。修法就是重跑一次 `put-mod.mjs`。
 `verify-gui-one.mjs` 只负责「起游戏 + 抓图」，**不负责装 jar**，所以验收前先确认
 `versions/<id>/mods/` 里有对应 jar（`V*` 那批老实例都有，`1.x-forge-*` 那批新实例可能没有）。
+
+## 27. 2026-10-28（第十轮）：下载页四个分类页签 + 全量重建
+
+### 27.1 需求
+
+「下载界面应该有快照、正式、远古、愚人节 4 个分类，就像模组加载器那样，选一个再列出对应版本」。
+原来只有一个「快照」开关，远古和愚人节根本没法单独看。
+
+### 27.2 分类怎么判
+
+清单里 Mojang 只给 4 种 `type`：`release` / `snapshot` / `old_beta` / `old_alpha`，
+**愚人节版本标记的也是 `snapshot`** —— 所以只能按 id 认。
+
+`VersionList.catOf()` 的顺序很关键：**先判愚人节，再判 old_beta/alpha，最后才 snapshot**，
+否则 9 个愚人节版本会全跑进「快照」页签。
+
+愚人节名单（`VersionList.FOOLS`，9 个）：
+
+| id | 发布 | 备注 |
+| --- | --- | --- |
+| 15w14a | 2015-04-01 | Love and Hugs |
+| 1.RV-Pre1 | 2016-03-31 | Trendy 更新（提前一天发） |
+| 3D Shareware v1.34 | 2019-04-01 | |
+| 20w14infinite | 2020-04-01 | 无限维度 |
+| 22w13oneblockatatime | 2022-04-01 | |
+| 23w13a_or_b | 2023-04-01 | 投票更新 |
+| 24w14potato | 2024-04-01 | 毒马铃薯 |
+| 25w14craftmine | 2025-04-01 | |
+| 26w14a | 2026-04-01 | 26.x 新命名下唯一一个旧式 id，且 26.2 首张快照 4/7 才出 |
+
+**判定为什么不能只看日期**：`22w13a`（2022-03-31）、`21w13a`、`17w13b` 也是 3 月底发的，
+但它们是当年的正常快照（前后有 22w12a → 22w14a 这种邻居），所以不在表里。
+
+实测分布（921 个版本）：**正式 103 / 快照 748 / 远古 61 / 愚人节 9**，四类相加 = 921，
+没有漏项（`catOf` 兜底返回 RELEASE，不会丢版本）。
+
+### 27.3 界面
+
+- 搜索框提到第一行（整宽，`contentY+1`），四个页签一行放 `contentY+20`，列表从 `contentY+39` 起；
+  页签按 `(w-9)/4` 等分（`contentW=298` → 每个 72px），当前页签前缀 `▶`，标签后面带该分类的版本数。
+- 列表行第二列直接写分类名（`VersionList.CAT_LABELS[catOf(v)]`），不再自己 switch type。
+- 搜索**只在当前页签里找** —— 页签是显式选择，跨类搜反而意外。空态文案分两种：
+  「这个分类里没有版本」/「「快照」里没有匹配的版本」。
+- 自检钩子 `MCVER_CAT=愚人节`（跟 `MCVER_TAB` 一样是验收用的），
+  另外 `recompute()` 会打一行 `mcver: 分类=X 搜索=Y 共=N 个（总 M）`。
+
+### 27.4 新工具：`scripts/rebuild-all.mjs`
+
+改了共享页面代码（`mod/src/main/java`）就得把 `dist` 里全部 jar 刷一遍，以前是手工一条条敲。
+现在：
+
+```bash
+node scripts/rebuild-all.mjs            # 31 步全跑（6 legacy forge + 17 forge/neoforge + 7 legacy fabric + 1 gradle + publish）
+node scripts/rebuild-all.mjs forge      # 子串过滤
+node scripts/rebuild-all.mjs publish    # 只把 modx/out/<target>/*.jar 抄进 dist
+```
+
+- 每步单独记日志 `logs/build/rebuild-<name>.log`，一步挂了不影响后面的，最后打总表。
+- **`publish` 是必须的**：`build-neoforge.mjs` 只写 `modx/out/<target>/`，从不碰 `dist`；
+  Fabric 那几套脚本（`build-1132` / `build-1122` / `build-all.ps1`）才直接写 `dist`。
+- **gradle 那步必须带 `-NoDaemon`**：daemon 会继承 stdout，`execFileSync` 等 EOF 会一直挂到超时
+  （实测 9 个 target 全构建完、dist 也拷好了，步骤就是不返回）。
+
+### 27.5 顺手修好的两个构建配置
+
+全量重建一下子把两处**陈旧的 target 配置**暴露出来了：
+
+1. **`forge-1.11.2`**：之前记录的 overlay 链少了基础层 —— 正确是
+   `--shim shim1122 --overlay forge102,forge111`。`forge111` 里只有 `McVerMod` + `mcmod.info`，
+   UI/Compat 来自 `forge102`（1.11.2 的 GUI API 跟 1.10.2 逐条相同）。
+   只给 `forge111` 会直接拿 Fabric 主源码去编 → 一堆 `net.fabricmc.api` 找不到。
+2. **`neoforge-20.6`**：`build-neoforge.mjs` 里 overlay 指向 `neoforge20/java`，
+   那是 `TickEvent` 版（20.2/20.4 用）。**NeoForge 20.5 起 `TickEvent` 被
+   `ClientTickEvent.Post` 取代**，20.6 必须用 `neoforge21/java`。
+   证据是已经发布的 20.6 jar 反编译出来就是 `onTick(ClientTickEvent$Post)` —— 配置后来被改坏了。
+
+### 27.6 验收
+
+| 实例 | 页面 | 结果 |
+| --- | --- | --- |
+| `1.21.4-forge-54.1.22` | 下载页（默认正式） | `children=23`，面板像素 19584 |
+| `neoforge-20.6.144` | 下载页 · 愚人节 | `children=23`，日志 `共=9`，像素命中 19583 / 中心 `C6C6C6` |
+| `1.11.2-forge1.11.2-13.20.1.2588` | 下载页（默认正式） | `children=23`，日志 `共=103` |
+| `1.7.10-Forge10.13.4.1614-1.7.10` | 下载页（默认正式） | `children=23`，日志 `共=103` |
+| `1.21.4-forge-54.1.22` | **启动页**（老判据） | `C6C6C6 / 19481 / children=17` ✔ |
+| `1.7.10-Forge10.13.4.1614-1.7.10` | **启动页**（老判据） | `C6C6C6 / 14945 / children=17` ✔ |
+
+下载页**不用像素判据**：面板中心落在列表按钮上（灰/蓝），中心点不会是 `C6C6C6`。
+判据换成 `children=23`（搜索框 + 4 页签 + 9 行 + 2 翻页 + 刷新 + 6 导航）+ 日志里的分类计数。
+启动页的老判据仍然全绿，说明这轮改动没碰坏别的页面。
+
+新工具 `scripts/verify-download-page.mjs`：把 `MCVER_TAB=下载` / `MCVER_CAT=<中文>` 用
+UTF-16 干净地传给游戏（PowerShell 里直接 `$env:MCVER_CAT='愚人节'` 会被转成 GBK 字节，
+游戏里对不上，页签永远停在「正式」）。
+
+### 27.7 产物
+
+`dist/` 现在 **39 个 jar**，全部在 2026-10-28 23:31–23:38 之间重建：
+Fabric 16 + Forge 18 + NeoForge 5（NeoForge 20.1 复用 forge-1.20.1 那个 jar）。

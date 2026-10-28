@@ -357,7 +357,7 @@ const TARGETS = {
     loaderDep: ['neoforge', '[20.6.0,)'],
     mcRange: '[1.20.6,1.21)',
     sources: ['mod/src/main/java'],
-    overlay: ['shims21/java', 'neoforge20/java'],
+    overlay: ['shims21/java', 'neoforge21/java'],
     resources: ['mod/src/main/resources'],
     jarName: 'watercraftlauncher-neoforge-1.0.0-mc1.20.6',
   },

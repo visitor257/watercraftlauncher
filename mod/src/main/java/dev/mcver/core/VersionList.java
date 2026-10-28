@@ -62,6 +62,55 @@ public final class VersionList {
         }
     }
 
+    // ================================================================ 分类（下载页的四个页签）
+
+    public static final int CAT_RELEASE = 0;
+    public static final int CAT_SNAPSHOT = 1;
+    public static final int CAT_OLD = 2;
+    public static final int CAT_FOOLS = 3;
+
+    public static final String[] CAT_LABELS = { "正式", "快照", "远古", "愚人节" };
+
+    /**
+     * 愚人节版本。清单里它们也标 {@code snapshot}（Mojang 没有单独的 type），只能按 id 认。
+     *
+     * <p>清单里 921 个版本中，只有这 9 个是「4/1 前后、且不在任何 pre/rc 链上」的独立版本。
+     * 注意 {@code 22w13a} / {@code 21w13a} / {@code 17w13b} 也是 3/31 发的，但它们是当年的正常快照
+     * （前后有 22w12a → 22w14a 这种邻居），所以不在表里。
+     *
+     * <p>{@code 26w14a} 是 2026 那次：26.x 起快照改叫 {@code 26.N-snapshot-M}，它是唯一一个旧式 id，
+     * 发在 4/1，且 26.2 的第一张快照是 4/7 才出的 —— 中间这个位置就是愚人节槽位。
+     */
+    private static final java.util.Set<String> FOOLS =
+            new java.util.HashSet<String>(java.util.Arrays.asList(
+                    "15w14a",
+                    "1.RV-Pre1",
+                    "3D Shareware v1.34",
+                    "20w14infinite",
+                    "22w13oneblockatatime",
+                    "23w13a_or_b",
+                    "24w14potato",
+                    "25w14craftmine",
+                    "26w14a"));
+
+    /** 版本属于哪个分类。愚人节先判 —— 它们在清单里也是 snapshot。 */
+    public static int catOf(V v) {
+        if (v == null) return CAT_RELEASE;
+        String id = v.id();
+        if (id != null && FOOLS.contains(id)) return CAT_FOOLS;
+        String t = v.type();
+        if ("old_beta".equals(t) || "old_alpha".equals(t)) return CAT_OLD;
+        if ("snapshot".equals(t)) return CAT_SNAPSHOT;
+        return CAT_RELEASE;
+    }
+
+    /** 某个分类下的版本数（给页签显示用）。 */
+    public static int count(List<V> all, int cat) {
+        int n = 0;
+        for (V v : all) if (catOf(v) == cat) n++;
+        return n;
+    }
+
     private static final long MIN_INTERVAL = 500;
 
     public static List<V> fetch(Sources.Src src) throws Exception {
@@ -109,6 +158,18 @@ public final class VersionList {
         }
         List<V> out = new ArrayList<>();
         for (V v : all) if (p.test(v)) out.add(v);
+        return out;
+    }
+
+    /** 按分类 + 搜索词筛。搜索只在当前分类里找（页签是显式选择，跨类搜反而意外）。 */
+    public static List<V> filter(List<V> all, String query, int cat) {
+        String q = query == null ? "" : query.trim().toLowerCase(java.util.Locale.ROOT);
+        List<V> out = new ArrayList<>();
+        for (V v : all) {
+            if (catOf(v) != cat) continue;
+            if (!q.isEmpty() && !v.id().toLowerCase(java.util.Locale.ROOT).contains(q)) continue;
+            out.add(v);
+        }
         return out;
     }
 
