@@ -394,10 +394,17 @@ public final class Launcher {
         // ---- libraries → classpath（旧版 natives 顺带解压）
         // 同一 group:artifact 只留版本最高的一个。继承合并后经常出现 asm 9.6 和 9.10.1 并存，
         // Fabric 的 verifyClasspath 会抛 "duplicate ASM classes found on classpath"，进程立刻退出码 1。
+        //
+        // **必须先按 rules 过滤，再去重**（2026-10-28，b1.7.3 踩到）：
+        // 远古版本的 json 里，高版本 lwjgl（2.9.1-nightly-20130708-debug3）带一条
+        // `allow + os.name=osx + os.version=^10\.5\.\d$` 的 rules —— 即「只在老 OSX 上用」。
+        // 先按版本去重就会把这个版本选中，随后 rules 又把它刷掉 → lwjgl / lwjgl_util /
+        // lwjgl-platform 三个全消失，b1.7.3 启动直接 NoClassDefFoundError: org/lwjgl/LWJGLException。
         Map<String, Map<String, Object>> byArtifact = new LinkedHashMap<>();
         for (Object o : json_arr(j.get("libraries"))) {
             Map<String, Object> lib = json_obj(o);
             if (lib == null) continue;
+            if (!Installer.rulesAllow(json_arrOrNull(lib.get("rules")), Installer.noFeatures())) continue;
             Maven m = Maven.parse(json_str(lib.get("name")));
             if (m == null) continue;
             String key = m.key() + "|" + m.ext;

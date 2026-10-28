@@ -1469,3 +1469,85 @@ UTF-16 干净地传给游戏（PowerShell 里直接 `$env:MCVER_CAT='愚人节'`
 
 `dist/` 现在 **39 个 jar**，全部在 2026-10-28 23:31–23:38 之间重建：
 Fabric 16 + Forge 18 + NeoForge 5（NeoForge 20.1 复用 forge-1.20.1 那个 jar）。
+
+## 28. 2026-10-29（第十一轮）：「远古」分类实测 —— 揪出 Launcher 的去重顺序 bug
+
+用户把决定权交给我。决定跑，但目标改成「安装 + 启动」，不是 mod 界面
+（b1.x/a1.x 既没有 Fabric 也没有 Forge，mod 本体根本装不上）。
+
+### 28.1 安装：61 个远古版本全走同一条路，实测两个
+
+```bash
+java -cp tools\probe\out dev.mcver.probe.ProbeInstall testgame b1.7.3 NONE - NONE - - 1
+java -cp tools\probe\out dev.mcver.probe.ProbeInstall testgame a1.2.6 NONE - NONE - - 1
+```
+
+两个都 **`state=DONE / complete=true`**，749 个资源文件全部落到
+`assets/virtual/pre-1.6`（`assets` 字段是 `pre-1.6`，走 virtual 索引）。
+`requiredJava=8`、`missingAssets=0`、`missing files=0` —— 安装路径没问题。
+
+### 28.2 启动：NoClassDefFoundError: org/lwjgl/LWJGLException
+
+第一次跑 b1.7.3 直接挂在：
+
+```
+Exception in thread "main" java.lang.NoClassDefFoundError: org/lwjgl/LWJGLException
+```
+
+`mcver-args-*.txt` 里 classpath 只有 **6** 项：launchwrapper / jopt-simple / asm-all /
+jinput / jutils / 客户端 jar —— **三个 lwjgl 全不在**。natives 目录倒是有 dll。
+
+**根因（在 `Launcher.plan()`）**：库去重是「同一 group:artifact 留版本最高」，
+**然后**才按 `rules` 过滤。而 b1.7.3 的 json 里，
+
+```json
+{ "name": "org.lwjgl.lwjgl:lwjgl:2.9.1-nightly-20130708-debug3",
+  "rules": [ { "action": "allow", "os": { "name": "osx", "version": "^10\\.5\\.\\d$" } } ] }
+```
+
+高版本那三个 nightly **只在老 OSX 上允许**。先按版本去重 → 选中 nightly → 再被 rules 刷掉
+→ Windows 上 lwjgl / lwjgl_util / lwjgl-platform 三个**一起消失**。
+而且 `missing files` 还是 0（被 rules 刷掉的条目压根没进 missing 统计），
+所以探针也报「一切正常」—— 只有真起游戏才炸。
+
+**修法**：`rules` 过滤提到去重之前（`byArtifact` 构建循环里先 `continue`）。
+真实启动器（官方 / PCL / HMCL）也是这个顺序：先筛平台，再挑版本。
+
+修完 b1.7.3 的 classpath 从 6 项变回 9 项（2.9.0 那套），
+日志走到 `Setting gameDir to: ...` + OpenAL 初始化完成。
+
+### 28.3 剩下两个不致命的报错（都不是我们的锅）
+
+1. `javax.imageio.IIOException: Can't read input file!`（`VanillaTweakInjector.loadIcon`）
+   —— 它去 `assets/virtual/pre-1.6/icons/icon_16x16.png` 找窗口图标，那批资源里没有 icons。
+   被 catch 掉，只影响窗口图标。
+2. `java.io.FileNotFoundException: http://s3.amazonaws.com/MinecraftResources/`
+   —— b1.7.x 的音效是自己去 S3 拉的，那个桶 Mojang 2020 年就关了。全世界都一样。
+
+a1.2.6 同样能起，实测窗口标题 `Minecraft`（`Get-Process java | MainWindowTitle`）。
+
+### 28.4 回归：这次改的是 core 共享代码，全量重建 + 四个目标重验
+
+`Launcher.java` 是**所有**版本共用的计划器，改完必须全量重建：
+
+```bash
+node scripts/rebuild-all.mjs     # 31/31 OK，publish 23 个 jar -> dist
+```
+
+| 目标 | 结果 |
+| --- | --- |
+| Forge 1.21.4 | `C6C6C6 / 19481 / 17` ✔ |
+| Fabric 1.21.4 | `C6C6C6 / 15092 / 17` ✔ |
+| Forge 1.7.10 | `C6C6C6 / 14945 / 17` ✔ |
+| NeoForge 20.6 | `C6C6C6 / 19478 / 17` ✔ |
+
+`dist/` 仍是 **39 个 jar**，全部 2026-10-29 00:06–00:12 重建。
+
+### 28.5 教训
+
+- **「按版本去重」和「按平台过滤」的顺序不能反**。反了以后被过滤掉的那份会顶掉合法的老版本，
+  而且**缺失统计看不见**（rules 刷掉的条目不计入 missing）→ 静止检查全绿、只有真跑才炸。
+- 远古版本的 json 里，`rules` 不只是「windows/linux/macos 三选一」，
+  还有「只在 osx 10.5.x 上用」这种**版本区间**规则。别按「allow 就是通吃」去想当然。
+- 探针报 `missing files=0` 不代表 classpath 是对的；`classpath entries=N` 这个数字也要一起看
+  （b1.7.3 正常是 9，出 bug 时是 6）。
