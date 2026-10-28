@@ -68,8 +68,23 @@ const probe = spawn(javaExe, [
 ], { cwd: ROOT, env: { ...process.env, MCVER_OPEN_GUI: '1' }, stdio: ['ignore', out, out] });
 
 // 2) 等本次启动的日志里出现面板绘制标记
+//
+// 坑（2026-10-28，Forge 1.17.1）：这一代 mod 的 SLF4J 行根本不进 stdout 重定向文件
+// （MC 自己的行有，我们的没有；latest.log/debug.log 都是 0 字节）。为了不让验收被日志坑住，
+// MainScreen 除了打日志还会往 gameDir 写 mcver-debug.txt（一行 `screen=MAIN ... children=17`），
+// 这里两个来源都认：**日志标记 或 debug 文件新行**，都只当「可以去抓图了」的信号，
+// 真正的判据还是像素。
 const logDir = join(instDir, 'logs');
+const debugFile = join(instDir, 'mcver-debug.txt');
 let gameLog = null;
+const debugLine = () => {
+  if (!existsSync(debugFile)) return null;
+  const st = statSync(debugFile);
+  if (st.mtimeMs < t0) return null;
+  const lines = readFileSync(debugFile, 'utf8').split(/\r?\n/).filter(Boolean);
+  for (let i = lines.length - 1; i >= 0; i--) if (lines[i].includes('screen=MAIN')) return lines[i];
+  return null;
+};
 const deadline = Date.now() + TIMEOUT * 1000;
 while (Date.now() < deadline) {
   if (existsSync(logDir)) {
@@ -85,6 +100,7 @@ while (Date.now() < deadline) {
       if (txt.includes('Mod loading has failed') || txt.includes('ExceptionInInitializerError')) break;
     }
   }
+  if (debugLine()) { gameLog = gameLog || '(仅 mcver-debug.txt)'; break; }
   await sleep(1000);
 }
 
@@ -94,9 +110,10 @@ if (!gameLog) {
   process.exit(1);
 }
 
-const text = readFileSync(gameLog, 'utf8');
-if (!text.includes('screen=MAIN chrome')) {
-  console.error(`[${instance}] 失败：日志里没有面板绘制标记（log=${gameLog}）`);
+const text = existsSync(gameLog) ? readFileSync(gameLog, 'utf8') : '';
+const dbg = debugLine();
+if (!text.includes('screen=MAIN chrome') && !dbg) {
+  console.error(`[${instance}] 失败：日志和 mcver-debug.txt 里都没有面板绘制标记（log=${gameLog}）`);
   const tail = text.split(/\r?\n/).slice(-15).join('\n');
   console.error(tail);
   killAll();
@@ -123,8 +140,10 @@ for (let i = 0; i < 30; i++) {
 // 4) 先杀进程再读日志（游戏活着时日志独占写，读不到 children=）
 killAll();
 await sleep(1500);
-const after = readFileSync(gameLog, 'utf8');
-const m = after.match(/children=(\d+)/);
+const after = existsSync(gameLog) ? readFileSync(gameLog, 'utf8') : '';
+// children 优先取 mcver-debug.txt（Forge 1.17.1 的日志里根本没有这一行），再退日志
+const dbgAfter = debugLine();
+const m = (dbgAfter || '').match(/children=(\d+)/) || after.match(/children=(\d+)/);
 const children = m ? Number(m[1]) : null;
 
 const ok = !!(shot && shot.ok && shot.center === 'C6C6C6' && shot.hits > 10000 && children !== null);

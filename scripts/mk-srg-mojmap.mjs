@@ -4,6 +4,12 @@
 //
 //   node scripts/mk-srg-mojmap.mjs 1.20.4 --forge 49.2.13
 //   node scripts/mk-srg-mojmap.mjs 1.20.1 --neo 47.1.84   （NeoForge 20.1 == Forge 47 分支）
+//   node scripts/mk-srg-mojmap.mjs 1.17.1 --forge 37.1.1 --patched
+//
+// --patched：改用 Forge 的 *-client.jar（**打过补丁**的那份）当输入，而不是 vanilla 的
+// client-*-srg.jar。差别很关键：Forge 的补丁才让 Item extends ForgeRegistryEntry，
+// 少了它，DeferredRegister<Item> 那个 IForgeRegistryEntry 上界在编译期就编不过
+// （运行时是 ModLauncher 现场打补丁，所以能跑）。1.16.5/1.17.1 必须开着。
 //
 // 映射来源（两份拼起来，正是 ForgeGradle 内部做的事）：
 //   de.oceanlabs.mcp:mcp_config:<mc>/*-mappings.tsrg   tsrg2：obf -> srg
@@ -30,6 +36,7 @@ const argOf = (k) => {
   return i >= 0 ? argv[i + 1] : null;
 };
 const forgeVer = argOf('--forge');
+const usePatched = argv.includes('--patched');
 const neoVer = argOf('--neo');
 if (!mc || (!forgeVer && !neoVer)) {
   console.error('用法: node scripts/mk-srg-mojmap.mjs <mc> --forge <forgeVer> | --neo <neoVer>');
@@ -83,6 +90,13 @@ function findClientSrg() {
     if (f) return join(base, d, f);
   }
   throw new Error(`libraries 里没有 ${mc} 的 client-*-srg.jar`);
+}
+function findForgeClient() {
+  const base = join(LIBS, 'net', 'minecraftforge', 'forge', `${mc}-${forgeVer}`);
+  const f = `forge-${mc}-${forgeVer}-client.jar`;
+  const p = join(base, f);
+  if (!existsSync(p)) throw new Error(`找不到 ${p}（--patched 需要 Forge 已装好）`);
+  return p;
 }
 async function clientMappings() {
   const cache = join(OUT, `client-mappings-${mc}.txt`);
@@ -211,7 +225,7 @@ function parseMojmap(path) {
 }
 
 const tsrgPath = findTsrg();
-const clientSrg = findClientSrg();
+const clientSrg = usePatched ? findForgeClient() : findClientSrg();
 const mojPath = await clientMappings();
 console.log(`tsrg:   ${tsrgPath}`);
 console.log(`client: ${clientSrg}`);
