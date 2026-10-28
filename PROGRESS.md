@@ -1158,3 +1158,79 @@ URL 顺序不保证谁赢 —— 那种 bug 只在某些启动路径上露头，
   再垫一层就能通，但收益低（1.7.10 的启动器需求也少），先记在这儿。
 - **Forge 1.15.2**：本地没实例，要先装。
 - **MC 26.1 / Forge 62**：class 69 / Java 25、`ResourceLocation`→`Identifier`、loader 拆模块。
+
+## 23. 2026-10-28（第七轮）：Forge 1.7.10 —— 同一套垫片方案再往下一层
+
+**结果**：Forge 1.7.10（10.13.4.1614，实例 `1.7.10-Forge10.13.4.1614-1.7.10`）
+**PASS —— `C6C6C6 / 14945 / children=17 / 870x519`**。
+页面代码**依旧零改动**（41 个共享源文件一行没动）。
+
+### 23.1 映射：1.7.10 的 srg 是 v0 文本格式，不是 tsrg
+
+新建 `scripts/mk-srg-1710.mjs`。映射来源跟 1.12.2 完全不同：
+
+| | 1.12.2 | 1.7.10 |
+| --- | --- | --- |
+| 来源 | `mcp_config` zip 的 `config/joined.tsrg` | `de/oceanlabs/mcp/mcp/1.7.10/mcp-1.7.10-srg.zip` 的 `joined.srg` |
+| 格式 | tsrg v1：两列，成员行**缩进** | srg v0：`PK:` / `CL:` / `FD:` / `MD:` 前缀行 |
+| 成员 owner | 靠缩进 | 写在名字里（`bao/a`） |
+| 方法描述符 | 第三列 | `MD:` 行**两个**描述符（obf 和 srg）都给 |
+
+解析结果：`1836 classes, 6900 fields, 13263 methods (skipped 0)`；字段描述符照样得从 jar 里读
+（`joined.srg` 不给），102 个字段在 jar 里找不到描述符（继承/合成）→ 跳过并 WARN。
+tiny v2 → remap 出 `client-1.7.10-srg.jar`。
+
+### 23.2 Forge universal jar 也是 notch 名
+
+跟 1.12.2 同样的坑，但更容易误判：**1.7.10 的 `forge-1.7.10-10.13.4.1614-1.7.10.jar` 里，
+vanilla 引用是混淆名**。证据：`GameRegistry.registerItem(adb, String)`（`adb` = `Item`）。
+这是 FML 的 deobf transformer 在运行期把 notch 翻成 srg 留下的痕迹。
+
+所以 `mk-srg-1710.mjs` 第 5 步也给它做一次 remap →
+`forge-10.13.4.1614-srg.jar`，签名就对了：`registerItem(net.minecraft.item.Item, String)`。
+
+### 23.3 垫片 `modx/shim1710`（与 shim1122 只差四处）
+
+1. **`Screen` 不能 override `func_183500_a`** —— 那是 1.9 才有的方法。同步
+   `width/height/font` 只能靠 `func_146280_a`（它自己设 `field_146294_l/m` 再调 `func_73866_w_()`）。
+2. `Component` → `net.minecraft.util.IChatComponent` + **`ChatComponentText`**（1.12.2 叫
+   `TextComponentString`），`getString()` = `func_150260_c()`。
+3. `ItemStack#isEmpty` → 1.7.10 **没有** `func_190926_b`（Capability 是 1.11+），「空」就是 `null`。
+4. `Items.PAPER` → 1.7.10 没有 `Item.getByNameOrId`（同 id `func_111206_d` 在 1.7.10 是
+   **setTextureName**），只能查老注册表 `Item.field_150901_e.func_82594_a("minecraft:paper")`。
+5. `Button#setWidth` → 1.7.10 没有 `func_175211_a`（1.8 才有），直接写 protected 字段 `field_146120_f`。
+6. `EditBox` → 构造器 `(FontRenderer,x,y,w,h)`（**连 id 都没有**），而且 1.7.10
+   **没有 `GuiResponder`**（1.8 才有）→ 值变化回调只能每帧 `poll()`。
+
+### 23.4 overlay `modx/forge1710`
+
+- **FML 在 `cpw.mods.fml.*`**（1.8 起才搬去 `net.minecraftforge.fml`）。
+- **两个事件总线**：`TickEvent` 走 `FMLCommonHandler.instance().bus()`，**不走**
+  `MinecraftForge.EVENT_BUS`。只听后者 → tick 永远收不到，表现是日志里既没有
+  「客户端初始化完成」也没有 `cur=`（**这轮唯一的真 bug，卡了一轮**）。
+- 注册：`GameRegistry.registerItem(item, "download_tool")`，没有 registry 对象。
+- 物品贴图：`setTextureName` 是 **protected** → 得开个 `Item` 子类在构造器里调；
+  路径是 `textures/items/`（复数），`assets/mcver/models/item/*.json` **完全不需要**（1.7.10 没有模型系统）。
+- `@Mod` **没有 `clientSideOnly` 成员**（1.12.2 那份有），写了直接编译失败。
+- 物品渲染：1.7.10 没有 `Minecraft#getItemRenderer()`，要自己 `new RenderItem()`，
+  设 `field_77023_b`（zLevel），并且必须自己 `RenderHelper.func_74520_c()` /
+  `func_74518_a()` 开关 GUI 光照 —— 否则图标是黑的。之后还得复位
+  `glColor4f(1,1,1,1)` + `glDisable(GL_LIGHTING)` + `glEnable(GL_BLEND)`。
+- 加控件：1.7.10 **没有** `func_189646_b`（1.8 才有），直接 `field_146292_n.add(...)`。
+- 顺手补了一个 1.12.2 也缺的东西：`func_73864_a` 里把鼠标点击转发给 `GuiTextField`
+  （`GuiScreen` 不管这些框，1.12.2 那份没转发 → 输入框点不进去）。
+- 文本坐标：1.7.10 的 `func_78276_b` / `func_78261_a` 收 **int**（1.12.2 的 `func_175063_a` 收 float）。
+
+### 23.5 累计
+
+- Fabric：16（1.7.10 ~ 1.21.11）
+- Forge：**13**（**1.7.10** / 1.12.2 / 1.14.4 / 1.16.5 / 1.17.1 / 1.18.2 / 1.19.4 / 1.20.1 / 1.20.2 / 1.20.4 / 1.20.6 / 1.21.1 / 1.21.4）
+- NeoForge：6（20.1 / 20.2 / 20.4 / 20.6 / 21.1 / 21.4）
+
+三个加载器、四代渲染 API、两套 remap 管线，全部像素验收 PASS。
+
+### 23.6 还没做
+
+- **Forge 1.15.2**：本地没实例，要先装（跟 1.16.5 的差别主要是 `EditBox` 占位符之类小项）。
+- **MC 26.1 / Forge 62**：class 69 / Java 25、`ResourceLocation`→`Identifier`、loader 拆模块。
+- **1.6.4 及以下**：启动器那边连 Forge 安装都还没做，先不谈。
