@@ -1355,3 +1355,18 @@ overlay 是**有序列表**，每个目录可以带自己的 `resources/`（mcmo
 - **Forge 1.13.2**：这一代**没有 Mojang 映射**（`client_mappings` 是 1.14.4 才开始发的），
   MCP 1.13 的名字是一套自己的「快照名」，得走 `mk-mcp-srg`（tsrg）那条路 + 全新的语义层。
 - **MC 26.1 / Forge 62**：class 69 / Java 25、`ResourceLocation`→`Identifier`、loader 拆模块。
+
+## 26. 2026-10-28（第九轮尾）：回归抽查
+
+加完 1.8.9 / 1.9.4 / 1.10.2 / 1.11.2 / 1.15.2 之后，抽查了老的两头：
+
+| target | 结果 |
+| --- | --- |
+| Forge **1.14.4**（老版本） | `C6C6C6 / 15079 / 17` ✔ |
+| Forge **1.21.4**（新版本，重编后） | `C6C6C6 / 19481 / 17` ✔ |
+
+**顺手记一个环境坑**：`testgame/versions/<实例>/mods` 是空的就等于「没装 mod」。
+这轮 1.14.4 第一次跑挂了，日志里一行 `mcver:` 都没有 —— 不是代码问题，是那个实例的
+mods 目录被清过。修法就是重跑一次 `put-mod.mjs`。
+`verify-gui-one.mjs` 只负责「起游戏 + 抓图」，**不负责装 jar**，所以验收前先确认
+`versions/<id>/mods/` 里有对应 jar（`V*` 那批老实例都有，`1.x-forge-*` 那批新实例可能没有）。
