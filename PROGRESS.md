@@ -940,3 +940,40 @@ NeoForge 侧 **20.2 / 20.4 / 20.6 / 21.1 / 21.4**。
 
 映射管线动了核心，重新生成 1.20.1 的映射确认 `renamed=0`（tsrg2 恒等，符合预期），
 并重建 + 重验 Forge 1.17.1（`--patched` + tsrg2 那条路）。
+
+## 20. 2026-10-28（第四轮）：Forge 1.14.4 —— 退到 PoseStack 之前
+
+**结果**：Forge 1.14.4（28.2.30）**PASS**，像素验收 `C6C6C6 / 15066 / children=17`。
+
+命中数比其它 target 少（1.5 万 vs 1.94 万）不是画错了：日志里 `gui=427x240 panel=375x220@26,10`，
+这个实例的 GUI 缩放比别的大，同样 870×519 的窗口里面板只占更小的逻辑面积。判据（中心色 + 命中
+>1 万 + children=17）都满足。
+
+### 1.14.4 比 1.16.5 又退一整代
+
+| | 1.16.5 / 1.17.1 | **1.14.4** |
+| --- | --- | --- |
+| 渲染入口 | `render(PoseStack,int,int,float)` | **`render(int,int,float)`**（没有 PoseStack，1.15 才引入） |
+| 背景 | `renderBackground(PoseStack)` | **`renderBackground()`** 无参 |
+| 填充 | `GuiComponent.fill(pose,…)` | **`GuiComponent.fill(int×5)`** 静态无 pose |
+| 文字 | `Font#drawShadow(pose, Component/String,…)` | **`Font#drawShadow(String,…)`**，**没有 Component 重载** |
+| 物品 | `renderAndDecorateItem(stack,x,y)` | 同（1.18 起才有别的变化） |
+| 按钮 | `new Button(x,y,w,h,Component,OnPress)` | **`new Button(x,y,w,h,String,OnPress)`** |
+| 输入框占位符 | `EditBox(...,Component)` | **`EditBox(...,String)`** |
+| 文本工厂 | `new TextComponent` / `StringTextComponent`（1.16.5） | **`TextComponent`**，且**没有 `MutableComponent` 接口** |
+| 截字 | `Font#plainSubstrByWidth` | **`Font#substrByWidth`** |
+| 注册 | `DeferredRegister.create(...)` | **`new DeferredRegister<>(...)`**（静态 create 1.16 才有） |
+
+`modx/forge14` 因此把 `Ctx` 做成**无状态单例**（`Ctx.of()` 不带参数），`ChromeScreen` 自己在
+`render` 里先调 `renderBackground()`。
+
+### 新增：`srcReplace`（逐 target 源码级改写）
+
+有些差异小到不值得开一份 overlay（一两句），但共享源码又不能改。`build-neoforge.mjs` 现在支持
+target 级 `srcReplace: [[旧, 新], ...]`，在「生成源码 → 覆盖 overlay」之后、编译之前对全部
+`.java` 做一次纯文本替换。1.14.4 用了两条：
+
+- `.plainSubstrByWidth(` → `.substrByWidth(`
+- `h, Txt.of(placeholder))` → `h, placeholder == null ? "" : placeholder)`（EditBox 收 String）
+
+**注意**：这是「就地改写生成物」，不要拿它盖逻辑差异，语义级差异仍然要 overlay。

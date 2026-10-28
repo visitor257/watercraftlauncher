@@ -55,6 +55,32 @@ const TARGETS = {
   //   ② 创造栏还是 `Item.Properties#tab(CreativeModeTab.TAB_TOOLS)`（`CreativeModeTabEvent` 1.19 才有）；
   //   ③ `--patched` 的 Forge client jar 只是**增量补丁包**（1275 个类），
   //      `mk-srg-mojmap.mjs` 现在会把「原版 remap」+「补丁 remap」合并成一份。
+  // MC 1.14.4 / Forge 28.2.30 —— PoseStack 之前那一代：没有 PoseStack、
+  // render(int,int,float)、renderBackground() 无参、Font 只收 String、Button 构造器也只收 String。
+  // 详见 modx/forge14。
+  'forge-14.4': {
+    mc: '1.14.4',
+    java: 8,
+    instance: 'V1.14.4-FORGE',
+    srg: true,
+    loaderVer: '28.2.30',
+    modsToml: 'META-INF/mods.toml',
+    loaderRange: '[28,)',
+    packFormat: 4,
+    loaderDep: ['forge', '[28,)'],
+    mcRange: '[1.14.4,1.15)',
+    sources: ['mod/src/main/java'],
+    overlay: ['shims21/java', 'forge14/java'],
+    // 1.14.4 的零散改名：截字 substrByWidth（1.15 才叫 plainSubstrByWidth）、
+    // EditBox 的占位符收 String（1.16 起收 Component）。只在生成出来的源码上改，
+    // 不动共享源码，也不值得为两句开一份 overlay。
+    srcReplace: [
+      ['.plainSubstrByWidth(', '.substrByWidth('],
+      ['h, Txt.of(placeholder))', 'h, placeholder == null ? "" : placeholder)'],
+    ],
+    resources: ['mod/src/main/resources'],
+    jarName: 'watercraftlauncher-forge-1.0.0-mc1.14.4',
+  },
   'forge-16.5': {
     mc: '1.16.5',
     java: 8,
@@ -332,6 +358,28 @@ execFileSync(process.execPath, [join(ROOT, 'scripts', 'mk-mojmap-src.mjs'), src,
 
 // 2) 手写适配层 / loader 入口覆盖上去（同路径同名 = 手写赢）
 for (const ov of T.overlay) cpSync(join(MODX, ov), src, { recursive: true, force: true });
+
+// 2.5) 逐 target 的源码级改写（`srcReplace`）。
+// 只用于「同一块 mojmap 代码在不同世代名字不一样」但这种差异小到不值得开一份 overlay 的情形，
+// 例如 1.14.4 的截字方法叫 Font#substrByWidth，1.15+ 才叫 plainSubstrByWidth。
+if (T.srcReplace) {
+  for (const [from, to] of T.srcReplace) {
+    let n = 0;
+    (function walk(dir) {
+      for (const e of readdirSync(dir, { withFileTypes: true })) {
+        const p = join(dir, e.name);
+        if (e.isDirectory()) { walk(p); continue; }
+        if (!p.endsWith('.java')) continue;
+        const before = readFileSync(p, 'utf8');
+        if (!before.includes(from)) continue;
+        const after = before.split(from).join(to);
+        writeFileSync(p, after, 'utf8');
+        n += before.split(from).length - 1;
+      }
+    })(src);
+    console.log(`  srcReplace ${from} -> ${to} (${n})`);
+  }
+}
 
 // 3) 编译
 //
