@@ -1234,3 +1234,64 @@ vanilla 引用是混淆名**。证据：`GameRegistry.registerItem(adb, String)`
 - **Forge 1.15.2**：本地没实例，要先装（跟 1.16.5 的差别主要是 `EditBox` 占位符之类小项）。
 - **MC 26.1 / Forge 62**：class 69 / Java 25、`ResourceLocation`→`Identifier`、loader 拆模块。
 - **1.6.4 及以下**：启动器那边连 Forge 安装都还没做，先不谈。
+
+## 24. 2026-10-28（第八轮）：Forge 1.15.2 + 1.10.2
+
+两个都 **PASS**，都是一次编译通过（1.15.2 只修了两处 API 改名）：
+
+| target | 实例 | 结果 |
+| --- | --- | --- |
+| Forge **1.15.2** | `1.15.2-forge-31.2.62` | `C6C6C6 / 15080 / children=17 / 870x519` |
+| Forge **1.10.2** | `1.10.2-forge1.10.2-12.18.3.2511` | `C6C6C6 / 15089 / children=17 / 870x519` |
+
+### 24.1 1.15.2：跟 1.14.4 同代，只有两处改名
+
+先跑 `ProbeInstall`（走**生产代码** InstallJob，不是手搓）装的实例：
+`node … ProbeInstall testgame 1.15.2 FORGE - NONE - - 1` → `1.15.2-forge-31.2.62`。
+
+overlay 链 = `shims21/java` + `forge14/java` + **`forge15/java`**，后者只干一件事：
+
+- `Minecraft#window` 在 1.15.2 是 **private**（1.14.4 是 public）→ 按键检测改用
+  `client.getWindow().getWindow()`。整份 `McVerClient` 从 forge14 复制过来改这一行。
+
+`srcReplace` 两条（都是纯改名，不值得开 overlay）：
+- `Font.plainSubstrByWidth` → **`substrByWidth`**（1.16 才改的名）；
+- `EditBox` 占位符仍收 String（1.16 起收 ITextComponent）。
+
+顺便记一笔：1.15.2 的 mojmap 包里，GUI 类**已经是现代包名**了
+（`net.minecraft.client.gui.screens.Screen` / `components/Button` / `components/EditBox`），
+所以 `shims21` 那层照用；而 1.14.4 的 `Field.of` 是通过 srcReplace 传 String 的，同样照用。
+
+### 24.2 1.10.2：跟 1.12.2 几乎一模一样
+
+映射还是 srg v0（`mcp-1.10.2-srg.zip` 的 `joined.srg`，`2980 classes / 10813 fields / 18571 methods`）。
+脚本为此通用化了：**`scripts/mk-srg-srgv0.mjs --mc <mc> --instance <实例> --forge <ver>`**
+（`mk-srg-1710.mjs` 就是它的 1.7.10 实例；forge jar 文件名三代三种，脚本自己试）。
+
+实测 1.10.2 与 1.12.2 的 GUI/物品 API **逐条相同**（`func_189646_b`、`func_183500_a`、
+`func_175211_a`、`GuiResponder`、`func_175042_a`、`func_175063_a` 全在）—— 只有两处不同：
+
+1. `IForgeRegistry` / `IForgeRegistryEntry` 还在 `net.minecraftforge.fml.common.registry`
+   （1.12 才挪到 `net.minecraftforge.registries`）→ `forge102/core/Compat.java` + `McVerMod` 改 import；
+2. `ItemStack#isEmpty`：1.10.2 没有 `func_190926_b`（1.11+）→ `shim1102/world/item/ItemStack.java` 用 null 判。
+
+**额外一条**：1.10.2 的物品模型要**显式**登记（1.11 起才按注册名自动找 `models/item/<name>.json`），
+所以在 `preInit` 里加了：
+
+```java
+ModelLoader.setCustomModelResourceLocation(DOWNLOAD_TOOL, 0,
+    new ModelResourceLocation(MOD_ID + ":download_tool", "inventory"));
+```
+
+（包在 try/catch 里，纯客户端调用 —— 我们本来就是 `clientSideOnly = true`。）
+
+### 24.3 累计
+
+- Fabric：16（1.7.10 ~ 1.21.11）
+- Forge：**15**（1.7.10 / **1.10.2** / 1.12.2 / 1.14.4 / **1.15.2** / 1.16.5 / 1.17.1 / 1.18.2 / 1.19.4 / 1.20.1 / 1.20.2 / 1.20.4 / 1.20.6 / 1.21.1 / 1.21.4）
+- NeoForge：6（20.1 / 20.2 / 20.4 / 20.6 / 21.1 / 21.4）
+
+### 24.4 还差
+
+Forge 侧只剩 **1.8.9 / 1.9.4 / 1.11.2 / 1.13.2**（本地都没实例，得先 ProbeInstall）
+和 **26.1**（class 69/Java 25 + `ResourceLocation`→`Identifier` + loader 拆模块）。

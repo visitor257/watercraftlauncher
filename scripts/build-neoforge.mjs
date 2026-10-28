@@ -81,6 +81,33 @@ const TARGETS = {
     resources: ['mod/src/main/resources'],
     jarName: 'watercraftlauncher-forge-1.0.0-mc1.14.4',
   },
+  // MC 1.15.2 / Forge 31.2.62 —— 1.14.4 与 1.16.5 之间的过渡代。
+  // 渲染 API 还是 1.14 那套（render(int,int,float)、无 PoseStack），但几个类改了名：
+  // EditBox → TextFieldWidget、TextComponent → StringTextComponent、TextRenderer 的
+  // getStringWidth → width(String)。适配都收在 modx/forge15。
+  'forge-15.2': {
+    mc: '1.15.2',
+    java: 8,
+    instance: '1.15.2-forge-31.2.62',
+    srg: true,
+    loaderVer: '31.2.62',
+    modsToml: 'META-INF/mods.toml',
+    loaderRange: '[31,)',
+    packFormat: 5,
+    loaderDep: ['forge', '[31,)'],
+    mcRange: '[1.15.2,1.16)',
+    sources: ['mod/src/main/java'],
+    overlay: ['shims21/java', 'forge14/java', 'forge15/java'],
+    srcReplace: [
+      // 1.15.2 的 Font 还叫 substrByWidth（plainSubstrByWidth 是 1.16 改的名）
+      ['.plainSubstrByWidth(', '.substrByWidth('],
+      // 1.15 的 TextFieldWidget 占位符还是 String（1.16 起变 ITextComponent）
+      ['h, Txt.of(placeholder))', 'h, placeholder == null ? "" : placeholder)'],
+    ],
+    resources: ['mod/src/main/resources'],
+    jarName: 'watercraftlauncher-forge-1.0.0-mc1.15.2',
+  },
+
   'forge-16.5': {
     mc: '1.16.5',
     java: 8,
