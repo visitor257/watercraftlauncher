@@ -1,0 +1,11 @@
+[
+  {
+    "modid": "mcver",
+    "name": "Water Craft Launcher (1.12.2 spike)",
+    "description": "feasibility spike",
+    "version": "1.0.0",
+    "mcversion": "1.12.2",
+    "authorList": ["mcver"],
+    "logoFile": ""
+  }
+]

@@ -977,3 +977,96 @@ target 级 `srcReplace: [[旧, 新], ...]`，在「生成源码 → 覆盖 overl
 - `h, Txt.of(placeholder))` → `h, placeholder == null ? "" : placeholder)`（EditBox 收 String）
 
 **注意**：这是「就地改写生成物」，不要拿它盖逻辑差异，语义级差异仍然要 overlay。
+
+## 21. 2026-10-28（第五轮）：切开 1.12.2 那代 —— MCP/SRG 管线 + 两件意外收获
+
+这一轮的产出不是「又一个 target」，而是**一条新管线**和两个被证伪的旧判断。
+
+### 21.1 NeoForge 20.1 白拿
+
+上一轮把 NeoForge 20.1 记成「要另开 `net.minecraftforge.*` 包名 overlay」。**实测不用**：
+NeoForge 20.1 的发行物叫 `net.neoforged:forge:1.20.1-47.1.84`，包名仍是 `net.minecraftforge.*`，
+`mods.toml` 也还是 `mods.toml`（`neoforge.mods.toml` 是 20.2+ 的事）。
+
+所以直接把 Forge 1.20.1 的 jar 丢进 `V1.20.1-NEOFORGE` 就过：
+
+| target | 判据 |
+| --- | --- |
+| NeoForge 20.1（复用 `watercraftlauncher-forge-1.0.0-mc1.20.1.jar`） | C6C6C6 / 19467 / children=17 |
+
+**分界线钉住**：NeoForge **20.1 = Forge 47 换皮（同一份 jar 可用）**；
+**20.2 起** 才是 `net.neoforged.*` + `neoforge.mods.toml`（那条路已经有自己的 target）。
+
+### 21.2 1.12.2 的映射：没有 mojmap，只有 MCP/SRG
+
+1.12.2 完全没有官方映射（`client_mappings` 是 1.14.4 才开始发的）。Forge 那一代的编译/运行命名空间是
+**SRG**：类名已经是真包名（`net/minecraft/client/gui/GuiScreen`），成员名是 `func_xxxxx` / `field_xxxxx`。
+
+映射来源是 `mcp_config` 里的 **`config/joined.tsrg`**（tsrg v1，`obf srg`）。新脚本 `scripts/mk-mcp-srg.mjs`：
+
+1. 从 `mcp_config-<mc>-*.zip` 取出 `config/joined.tsrg`；
+2. 解析 v1（类行 `obf srg`，成员行缩进；方法行 `obf (desc) srg`）；
+3. **补字段描述符** —— tiny v2 的字段行必须带 desc，而 tsrg 只给名字对。
+   于是自己写了个最小 class 文件解析器（跳过常量池/接口表/属性，~30 行），从原版 jar 里读字段描述符；
+   1.12.2 上 11915 个字段里有 108 个在 jar 里找不到（继承来的/合成字段），跳过即可；
+4. remap 原版 jar → `modx/srg/1.12.2/client-1.12.2-srg.jar`；
+5. **顺带把 Forge 的 jar 也 remap**：1.12.2 的 `forge-1.12.2-14.23.5.2864.jar` 是 **notch 名**
+   （`setRegistryName(nf)`、`Class<? extends avj>`），跟 1.16+ 的 `forge-*-client.jar`（已 srg）完全不同。
+   不转的话拿它编 mod 类型全对不上。
+
+**关键好处**：这条路是「SRG 编 → **不 reobf**」。字节码里引用的就是运行期名字，少一跳就少一类错
+（对比 1.16.5 的「mojmap 编 → reobf 回 SRG」）。
+
+### 21.3 原版 `Item` 不实现 `IForgeRegistryEntry`（和 1.16.5 同款坑）
+
+原版 jar 里的 `net.minecraft.item.Item` 并没有 `implements IForgeRegistryEntry` —— 那是 Forge 用
+**binpatch** 在运行期加的。于是 `ForgeRegistries.ITEMS.register(item)` 编译期过不了类型约束
+（`V extends IForgeRegistryEntry<V>`），而 `(IForgeRegistryEntry) item` 这种强转 javac 也拒绝（两者编译期无关系）。
+
+**解法：经 Object 中转**：
+
+```java
+IForgeRegistryEntry entry = (IForgeRegistryEntry) (Object) item;   // 编译过，运行期类已被补丁
+entry.setRegistryName(new ResourceLocation("mcver", "download_tool"));
+((IForgeRegistry) ForgeRegistries.ITEMS).register(entry);
+```
+
+这样就不需要去解 `binpatches.pack.lzma`、也不需要「先造一份打过补丁的 jar」。运行期一切正常。
+
+### 21.4 最重要的前提已验证：mod jar 可以带 `net.minecraft.*` 的类
+
+1.12.2 的 API 名字（`GuiScreen` / `FontRenderer` / `ITextComponent`）和共享页面代码用的 1.14 时代名字
+差得**一整个包结构**，直接改名编译不动。唯一能保住「页面代码零改动」的办法是给 1.14 时代那批类名写
+一层**垫片**（shim），也就是往自己的 mod jar 里塞 `net.minecraft.client.gui.screens.Screen`、
+`net.minecraft.text.Text` 这类类。
+
+风险是「Forge 的 LaunchClassLoader 允不允许」。写了 `modx/spike1122` 做最小验证：
+
+```
+mcver: spike shim=ok shimClass=net.minecraft.text.Text loader=net.minecraft.launchwrapper.LaunchClassLoader
+mcver: spike registered=mcver:download_tool
+```
+
+**允许**。而且顺手证明了 SRG 编译产物能直接用（`func_77655_b` 之类真能调）。
+
+- 构建脚本：`scripts/build-1122forge.mjs`（`--release 8`，classpath = srg client + srg forge + 原版库）
+- 验证：`ProbeLaunch testgame 1.12.2-forge-14.23.5.2864 240 "mcver: spike shim"` → `GUI OK`
+- 顺带发现：本机 Java 8 在 **`E:\Program Files\Java\jre-1.8`**（启动器也支持自动下 `jre-legacy`）
+
+### 21.5 还没做（下一步就照这个顺序）
+
+真 target 还差四块，全部是机械活：
+
+1. **垫片层** `modx/forge1122/java/net/minecraft/**`：按生成源码里实际出现的 import 写
+   （`Screen` / `TextRenderer` / `Text` / `ButtonWidget` / `ClickableWidget` / `TextFieldWidget` /
+   `MinecraftClient` / `DrawContext` / `Identifier` / `Registries` / `RegistryKey` / `RegistryKeys` /
+   `ItemGroups` / `Hand`）。页面代码只把这些当**类型**用，方法调用集中在 `Btn`/`Field`/`ChromeScreen`
+   三个 mcver 包装类里，所以垫片可以很薄。
+2. **1.12.2 overlay**：`ChromeScreen`（`func_73863_a` / `func_146278_c` / `buttonList`）、`Ctx`
+   （`Gui.func_73734_a` / `FontRenderer.func_175063_a` / `RenderItem.func_175042_a`）、`Btn`
+   （`GuiButton`）、`Field`（`GuiTextField`）、`Txt`、`Log`（log4j2）、`McVerMod`（`mcmod.info` + `@Mod`）、
+   `McVerClient`（tick 事件 + 键位）。
+3. **资源布局**：1.12.2 是 `models/item/x.json` + `textures/items/x.png`（后面才统一成 `textures/item`），
+   外加 `mcmod.info`。
+4. **新实例**：`V1.12.2-FORGE` 目前这个 json **根本没有 Forge 库**（`mainClass=net.minecraft.client.main.Main`），
+   是坏的；真实验证要用 `1.12.2-forge-14.23.5.2864`（`inheritsFrom: 1.12.2`，登录器能正确合并）。
