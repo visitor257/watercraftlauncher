@@ -1295,3 +1295,63 @@ ModelLoader.setCustomModelResourceLocation(DOWNLOAD_TOOL, 0,
 
 Forge 侧只剩 **1.8.9 / 1.9.4 / 1.11.2 / 1.13.2**（本地都没实例，得先 ProbeInstall）
 和 **26.1**（class 69/Java 25 + `ResourceLocation`→`Identifier` + loader 拆模块）。
+
+## 25. 2026-10-28（第九轮）：1.11.2 / 1.9.4 / 1.8.9 —— 1.8~1.12 这一代铺满
+
+| target | 实例 | 结果 |
+| --- | --- | --- |
+| Forge **1.11.2** | `1.11.2-forge1.11.2-13.20.1.2588` | `C6C6C6 / 15092 / 17 / 870x519` |
+| Forge **1.9.4** | `1.9.4-forge1.9.4-12.17.0.2317-1.9.4` | `C6C6C6 / 15100 / 17 / 870x519` |
+| Forge **1.8.9** | `1.8.9-forge1.8.9-11.15.1.2318-1.8.9` | `C6C6C6 / 15145 / 17 / 870x519` |
+
+三个实例都是 `ProbeInstall`（生产代码 InstallJob）装的。
+
+### 25.1 新工具：`scripts/build-srg-legacy.mjs`
+
+原来 `build-1122forge.mjs` / `build-102forge.mjs` 各自是复制粘贴的产物，三代之后就受不了了。
+现在一个脚本吃参数：
+
+```bash
+node scripts/build-srg-legacy.mjs --mc 1.8.9 --forge 11.15.1.2318 \
+     --instance 1.8.9-forge1.8.9-11.15.1.2318-1.8.9 \
+     --shim shim189 --overlay forge102,forge189
+```
+
+overlay 是**有序列表**，每个目录可以带自己的 `resources/`（mcmod.info 的 `mcversion` 就靠它逐代覆盖）。
+
+### 25.2 三代的差别（都是「上一层少一点东西」）
+
+**1.11.2** —— 跟 1.12.2 只差注册表包名：
+- 有 `func_190926_b`（isEmpty，1.11 才有）→ 直接用 `shim1122`；
+- `IForgeRegistry*` 仍在 `net.minecraftforge.fml.common.registry`（1.12 才挪）；
+- 模型**不用**显式登记了（1.11 起按注册名自动找 `models/item/<name>.json`）。
+
+**1.9.4** —— 少两样：
+- `GuiScreen` **没有** `func_189646_b`（1.10 才加）→ `field_146292_n.add((GuiButton) w)`
+  （注意这个 List 是**有泛型**的，直接 `add(w)` 编不过）；
+- `ItemStack` 没有 `func_190926_b` → `shim1102` 的 null 判；
+- 模型要显式登记。
+
+**1.8.9** —— 再少两样：
+- **没有 `ForgeRegistries` / `IForgeRegistry`**（1.9 才有）→ 老接口
+  `GameRegistry.registerItem(item, name)`；
+- 模型类在 `net.minecraft.client.resources.model.ModelResourceLocation`
+  （1.9 才挪到 `client.renderer.block.model`）；
+- 文本是 **`net.minecraft.util.IChatComponent` + `ChatComponentText`**
+  （`net.minecraft.util.text` 是 1.9 才有的包）→ 用 `shim1710` 的 `Component`。
+
+所以 `shim189` = `shim1102`（null isEmpty）+ `shim1710` 的 `Component`；
+`forge189` 的 `McVerMod`/`Compat` 单独写了一份（注册表和模型路径都不一样）。
+
+### 25.3 累计（Forge 18 个）
+
+- **Forge（18）**：1.7.10 / **1.8.9** / **1.9.4** / 1.10.2 / **1.11.2** / 1.12.2 / 1.14.4 / 1.15.2 /
+  1.16.5 / 1.17.1 / 1.18.2 / 1.19.4 / 1.20.1 / 1.20.2 / 1.20.4 / 1.20.6 / 1.21.1 / 1.21.4
+- Fabric：16（1.7.10 ~ 1.21.11）
+- NeoForge：6（20.1 / 20.2 / 20.4 / 20.6 / 21.1 / 21.4）
+
+### 25.4 只剩两个
+
+- **Forge 1.13.2**：这一代**没有 Mojang 映射**（`client_mappings` 是 1.14.4 才开始发的），
+  MCP 1.13 的名字是一套自己的「快照名」，得走 `mk-mcp-srg`（tsrg）那条路 + 全新的语义层。
+- **MC 26.1 / Forge 62**：class 69 / Java 25、`ResourceLocation`→`Identifier`、loader 拆模块。

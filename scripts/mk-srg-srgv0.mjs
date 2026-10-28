@@ -35,9 +35,11 @@ const MC = arg('mc', '1.7.10');
 const INSTANCE = arg('instance', `${MC}-Forge${arg('forge', '10.13.4.1614')}-${MC}`);
 const VANILLA = arg('jar', join(GAME, 'versions', INSTANCE, INSTANCE + '.jar'));
 const FORGE_VER = arg('forge', '10.13.4.1614');
-const FORGE_DIR = join(GAME, 'libraries', 'net', 'minecraftforge', 'forge', `${MC}-${FORGE_VER}${MC.startsWith('1.7') ? '-' + MC : ''}`);
-// 文件名各代不一样：1.7.10 `forge-<mc>-<ver>-<mc>.jar`（无 universal 后缀）、
-// 1.8~1.13 `forge-<mc>-<ver>-universal.jar` / `forge-<mc>-<ver>.jar`。全试一遍。
+// 目录名和文件名各代不一样：1.7.10 / 1.8~1.12 有的带 `-<mc>` 尾巴、有的不带。全试一遍。
+const FORGE_DIR = [
+  join(GAME, 'libraries', 'net', 'minecraftforge', 'forge', `${MC}-${FORGE_VER}-${MC}`),
+  join(GAME, 'libraries', 'net', 'minecraftforge', 'forge', `${MC}-${FORGE_VER}`),
+].find(existsSync) || join(GAME, 'libraries', 'net', 'minecraftforge', 'forge', `${MC}-${FORGE_VER}`);
 const FORGE_JAR = arg('forge-jar', [
   join(FORGE_DIR, `forge-${MC}-${FORGE_VER}-${MC}.jar`),
   join(FORGE_DIR, `forge-${MC}-${FORGE_VER}-universal.jar`),
