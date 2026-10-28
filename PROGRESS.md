@@ -812,3 +812,72 @@ Fabric 侧铺完之后转 Forge。这一轮把「SRG 时代」（运行时方法
   FML 又是独立版本号（47.1.47 / 1.0.16）。要做得另开一路 overlay，收益不大，暂缓。
 - **Forge 1.19.4 / 1.18.2 / 1.17.1 / 1.16.5**：SRG 管线本身能复用，但这些版本没有 `GuiGraphics`，
   渲染要走 `PoseStack` → 需要一套和 Fabric 侧 `ui/Ctx` 同级的 mojmap 版适配层，工作量在 compat 上，不在管线。
+## 18. 2026-10-28（续）：Forge 一路铺到 1.17.1，外加 1.21.4
+
+§17 之后又把 Forge/NeoForge 的 mod 本体往下铺了 5 个 target，全部像素验收 PASS：
+
+| target | jar | 实例 | 结果 |
+| --- | --- | --- | --- |
+| forge-19.4 | `watercraftlauncher-forge-1.0.0-mc1.19.4` | V1.19.4-FORGE | PASS C6C6C6 / 19463 / 17 |
+| forge-18.2 | `...-mc1.18.2` | V1.18.2-FORGE | PASS 19463 / 17 |
+| forge-17.1 | `...-mc1.17.1` | V1.17.1-FORGE | PASS 19463 / 17 |
+| forge-21.4 | `...-mc1.21.4` | V1.21.4-FORGE | PASS 19468 / 17 |
+| neoforge-21.4 | `...-neoforge-1.0.0-mc1.21.4` | V1.21.4-NEOFORGE | PASS 19471 / 17 |
+
+现在 Forge 侧覆盖 **1.17.1 / 1.18.2 / 1.19.4 / 1.20.1 / 1.20.2 / 1.20.4 / 1.20.6 / 1.21.1 / 1.21.4**，
+NeoForge 侧 **20.2 / 20.4 / 20.6 / 21.1 / 21.4**。
+
+### 关键新招：`--patched`
+
+`mk-srg-mojmap.mjs --patched` 改用 Forge 的 **`forge-<mc>-<ver>-client.jar`（打过补丁的那份）**
+当输入，而不是 vanilla 的 `client-*-srg.jar`。差别很要命：
+
+- vanilla srg jar 里 `Item implements ItemLike` —— **不**继承 `ForgeRegistryEntry`；
+- 那是 Forge 在运行期用 ModLauncher 现场打补丁加的，所以拿 vanilla 编 `DeferredRegister<Item>`
+  会卡在 `T extends IForgeRegistryEntry<T>` 上编不过；
+- 而「退一步直接 `Registry.register(...)`」也不行：Forge 37 构造期注册表已锁，
+  实测 `IllegalStateException: Can not register to a locked registry`。
+
+**1.16.5 / 1.17.1 必须开 `--patched`。**
+
+### PoseStack 时代（1.17.1 ~ 1.19.4）的三层差异
+
+1. **渲染**：没有 `GuiGraphics`，`fill` 走 `GuiComponent.fill(pose,...)`、文字走
+   `Font#draw/drawShadow`、物品走 `ItemRenderer#renderAndDecorateItem`。
+   注意 **1.18 起 `renderAndDecorateItem` 不收 PoseStack**（1.18 把矩阵改成 RenderSystem 全局，
+   1.19 又加回来，1.20 换成 GuiGraphics）—— 一个方法在三个相邻版本里换了三次签名。
+2. **钩子**：`render(PoseStack,int,int,float)`、`renderBackground(PoseStack)` 单参、
+   `mouseScrolled(3 参)`、`isPauseScreen()`（mojmap 到 1.20 才改名 shouldPause），
+   且 `Screen#render` **不会**自己调 `renderBackground` → 面板要在 `render` 里手动先画。
+3. **零散 API**（每代都在挪）：
+   - `Button.builder` 是 1.19 才有 → 1.18.2 只能用 `new Button(x,y,w,h,Component,OnPress)`；
+   - `Component.literal` 是 1.19 才有 → 1.18.2 用 `new TextComponent(...)`；
+   - `RegistryObject` 在 1.17.1 还叫 `net.minecraftforge.fmllegacy.RegistryObject`，1.18.2 才回 `registries`；
+   - `DeferredRegister.create` 的 `ResourceKey` 重载 1.18.2 才有，1.17.1 只能给 `ForgeRegistries.ITEMS`；
+   - `CreativeModeTabEvent` 不存在于 1.18.2，创造栏靠 `Item.Properties#tab(CreativeModeTab.TAB_TOOLS)`
+     （这个方法 1.19.4 就删了，1.19.4 又换成 `CreativeModeTabEvent.BuildContents` +
+     `CreativeModeTabRegistry.getName`）；
+   - **1.17 自带 Java 16** → target 的 `java` 必须是 16，编 17 会
+     `UnsupportedClassVersionError: class file version 61.0`。
+
+### 1.21.4：`Item.Properties#setId`
+
+1.21.2 起注册物品必须显式给 id，否则 `NPE: Item id not set`（崩在 `Item.<init>` 里，
+堆栈根本不提 setId，容易查半天）。→ `modx/forge214` / `modx/neoforge214` 各覆盖一份 `McVerMod`。
+
+### 验证脚本：日志不是唯一信号
+
+**Forge 1.17.1 的 SLF4J 输出根本不进 stdout 重定向文件**（MC 自己的行有、我们的没有，
+`latest.log`/`debug.log` 都是 0 字节）。但 GUI 明明画出来了 —— 所以 `verify-gui-one.mjs` 现在
+把 `gameDir/mcver-debug.txt`（MainScreen 顺手写的一行 `screen=MAIN ... children=17`）也当成
+「可以去抓图了」的信号。**判据还是像素**，这一点没松。
+
+### 没做
+
+- **Forge 1.16.5**：官方映射在 1.16.5 是**残缺的**（`Font#drawShadow` 之类还是 `func_`），
+  所以「mojmap 编 + reobf」这条路走不通；要么改用 **SRG 名编源码**（需要一个源码级
+  mojmap→SRG 改名器，按类上下文解析方法名），要么放弃。工作量在后者，不值当，先搁。
+- **MC 26.1 / Forge 62**：三个新坑都已探明，写在 `build-neoforge.mjs` 的 TODO 里：
+  ① 类是 class 69（Java 25），`--release 21` 会拒读（要 Java 25 的 javac + `--release 25`）；
+  ② `ResourceLocation` 改名 `net.minecraft.resources.Identifier`；
+  ③ loader 拆成一堆模块，实例 json 列不全，得把「按目录名补 classpath」用到这一代。

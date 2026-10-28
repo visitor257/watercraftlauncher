@@ -210,6 +210,13 @@ const TARGETS = {
     jarName: 'watercraftlauncher-forge-1.0.0-mc1.21.1',
   },
 
+  // TODO(MC 26.1 / Forge 62)：这一代三个新坑，都还没处理，先不做（探针已确认）：
+  //   ① MC 的类是 class 69（Java 25）→ 必须用 Java 25 的 javac 编，且 --release 21 会直接报
+  //      「类文件具有错误的版本 69.0，应为 65.0」（--release 会限制可读的类文件版本），
+  //      得 --release 25 + jdk: 'testgame/runtime/java-runtime-epsilon/windows-x64'；
+  //   ② ResourceLocation 改名成 net.minecraft.resources.Identifier（26.1 起）→ 转换表要加 era 分支；
+  //   ③ loader 拆成一堆模块（fmlcore / eventbus / javafmllanguage / modlauncher ...），实例 json 里
+  //      列不全 → 得把 srg 那套「按 <mc>-<loaderVer> 目录名补 classpath」的逻辑也用到这一代。
   'forge-21.4': {
     mc: '1.21.4',
     java: 21,
@@ -466,7 +473,9 @@ writeFileSync(argFile, [
   ...sources.map((s) => `"${fw(s)}"`),
 ].join('\n'), 'utf8');
 
-const javac = join(process.env.JAVA_HOME || 'C:/Program Files/Java/jdk-21.0.7', 'bin', 'javac.exe');
+// 26.1 的 MC 类文件是版本 69（Java 25），JDK 21 的 javac 连读都读不了 → 允许按 target 换 JDK。
+const JDK_HOME = T.jdk ? join(ROOT, T.jdk) : (process.env.JAVA_HOME || 'C:/Program Files/Java/jdk-21.0.7');
+const javac = join(JDK_HOME, 'bin', 'javac.exe');
 try {
   execFileSync(javac, ['@' + argFile], { stdio: 'inherit' });
 } catch {
@@ -520,7 +529,7 @@ mkdirSync(outDir, { recursive: true });
 const jarPath = join(outDir, T.jarName + '.jar');
 const stagesJar = T.srg ? join(work, 'raw.jar') : jarPath;
 rmSync(stagesJar, { force: true });
-const jarExe = join(process.env.JAVA_HOME || 'C:/Program Files/Java/jdk-21.0.7', 'bin', 'jar.exe');
+const jarExe = join(JDK_HOME, 'bin', 'jar.exe');
 execFileSync(jarExe, ['--create', '--file', stagesJar, '-C', stages, '.'], { stdio: 'inherit' });
 
 // SRG 时代：产出的字节码是官方名，运行时只认 SRG → reobf 一份
@@ -531,7 +540,7 @@ if (T.srg) {
     moduleJar('net.fabricmc/mapping-io', '0.8.0'),
     moduleJar('net.fabricmc/tiny-remapper', '0.12.0'),
   ].join(';');
-  const javaExe = join(process.env.JAVA_HOME || 'C:/Program Files/Java/jdk-21.0.7', 'bin', 'java.exe');
+  const javaExe = join(JDK_HOME, 'bin', 'java.exe');
   execFileSync(javaExe, [
     '-cp', trCp, 'net.fabricmc.tinyremapper.Main',
     stagesJar, jarPath,
