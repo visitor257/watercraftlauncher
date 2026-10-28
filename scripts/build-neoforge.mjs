@@ -50,6 +50,27 @@ const TARGETS = {
   // 编译用 modx/srg/<mc>/ 里由 scripts/mk-srg-mojmap.mjs 生成的两份 mojmap jar。
   // PoseStack 时代（1.19.4 及更早）：mojmap 里还没有 GuiGraphics，渲染要走 PoseStack。
   // 管线复用 SRG reobf，多出来的是 modx/forge19 里的 ui/Ctx + ChromeScreen 适配层。
+  // MC 1.16.5 / Forge 36.2.42。三个特有的事：
+  //   ① `RegistryObject` 在 `net.minecraftforge.fml`（1.17 才挪 fmllegacy、1.18.2 才回 registries）；
+  //   ② 创造栏还是 `Item.Properties#tab(CreativeModeTab.TAB_TOOLS)`（`CreativeModeTabEvent` 1.19 才有）；
+  //   ③ `--patched` 的 Forge client jar 只是**增量补丁包**（1275 个类），
+  //      `mk-srg-mojmap.mjs` 现在会把「原版 remap」+「补丁 remap」合并成一份。
+  'forge-16.5': {
+    mc: '1.16.5',
+    java: 8,
+    instance: 'V1.16.5-FORGE',
+    srg: true,
+    loaderVer: '36.2.42',
+    modsToml: 'META-INF/mods.toml',
+    loaderRange: '[36,)',
+    packFormat: 6,
+    loaderDep: ['forge', '[36,)'],
+    mcRange: '[1.16.5,1.17)',
+    sources: ['mod/src/main/java'],
+    overlay: ['shims21/java', 'forge16/java'],
+    resources: ['mod/src/main/resources'],
+    jarName: 'watercraftlauncher-forge-1.0.0-mc1.16.5',
+  },
   'forge-17.1': {
     mc: '1.17.1',
     // MC 1.17 自带的是 Java 16（class 60）→ 编 17 会 UnsupportedClassVersionError

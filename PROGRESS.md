@@ -881,3 +881,62 @@ NeoForge 侧 **20.2 / 20.4 / 20.6 / 21.1 / 21.4**。
   ① 类是 class 69（Java 25），`--release 21` 会拒读（要 Java 25 的 javac + `--release 25`）；
   ② `ResourceLocation` 改名 `net.minecraft.resources.Identifier`；
   ③ loader 拆成一堆模块，实例 json 列不全，得把「按目录名补 classpath」用到这一代。
+
+## 19. 2026-10-28（第三轮）：Forge 1.16.5 —— 上次「没做」的理由是错的
+
+**先说结论**：Forge 1.16.5（36.2.42）**PASS**，像素验收 `C6C6C6 / 19463 / children=17`。
+
+上一轮我在本文 §18 写了「1.16.5 官方映射残缺（`Font#drawShadow` 还是 `func_`），
+所以 mojmap 编 + reobf 走不通」。**这个结论是假的**，起因是我把一次**解析失败**当成了映射缺陷：
+
+- 1.16.5 的 `mcp_config` 给的是 **tsrg v1**（无文件头，`obfClass srgClass` + `\t obf srg`），
+  而 `parseTsrg` 只认 tsrg2（要求类行 3 列）→ 每一行都被当垃圾丢掉；
+- 于是 `srg2mojmap.tiny` 只剩一个 **20 字节的文件头**，remap 等于空操作，
+  产出的「mojmap jar」其实是 SRG jar 原件 —— 里面当然是 `FontRenderer`、`func_xxxx`；
+- 我看到那些旧名字就断定「Mojang 在 1.16.5 没给全」，实际上
+  `client-mappings-1.16.5.txt` 里 `func_` 计数是 **0**，`Font#drawShadow` 之类全都在。
+
+### 修掉的三件事（都在 `scripts/mk-srg-mojmap.mjs`）
+
+1. **tsrg v1 解析**：类行两列、字段两列、方法三列且**描述符在中**（`obf (desc) srg`）。
+   判别式只看有没有 `tsrg2` 文件头。修完 `miss=0`（35253 个方法全中）。
+2. **真改类名**（这是 1.16.5 与 1.17+ 的根本差别）：
+   - tsrg2 的 srg 类名是 `net/minecraft/src/C_182965_` 类 id，运行时 jar 用官方包名 → **只能恒等**；
+   - tsrg v1 的 srg 类名就是 jar 里的真包名（`gui/FontRenderer`、`gui/AbstractGui`），
+     而 mojmap 叫 `Font` / `Gui` → **必须真改名**，否则源码连 `Font` 都找不到。
+   按世代选「源命名空间」（`isV2 ? moj : srg`），描述符也跟着换命名空间。
+3. **反向映射也要一起换**（reobf）：类对换顺序 + 描述符换回 mojmap 命名空间。
+   以前恒等，倒名字就够；1.16.5 上漏了这步 → 编译通过、装进去运行期
+   `NoClassDefFoundError: net/minecraft/world/item/Item`（我们引的是 mojmap 名，游戏里叫 `net/minecraft/item/Item`）。
+
+### 还有一件 Forge 特有的事：client jar 不一定全量
+
+`--patched` 吃 Forge 的 `forge-<mc>-<ver>-client.jar`：
+
+| 版本 | 补丁包内容 |
+| --- | --- |
+| Forge 37（1.17.1） | **全量**（整个游戏 + 补丁） |
+| Forge 36（1.16.5） | **只有增量补丁**，1275 个类，连 `Font`/`Button` 都没有 |
+
+所以 `--patched` 现在统一走「原版 srg jar remap 出全量 → 补丁包 remap 出覆盖层 → 合并（补丁优先）」，
+用 JDK 自带 `jar` 解压/重打，不引第三方 zip 库。症状很有迷惑性：jar 里**有** `Minecraft`，
+但 `Font` 一个都没有。
+
+### 适配层：`modx/forge16`（几乎就是 `forge17` 减三处）
+
+渲染钩子跟 1.17.1 一模一样（`PoseStack`、单参 `renderBackground`、三参 `mouseScrolled`、
+`isPauseScreen()`），只差控件管理：
+
+- `addRenderableWidget` 是 1.17 才有 → 1.16.5 用 `addButton(T)`；
+- `clearWidgets()` 也是 1.17 才有 → 自己清 `children` + `buttons` 两个列表；
+- `RegistryObject` 在 `net.minecraftforge.fml`（1.17 挪 fmllegacy、1.18.2 才回 registries）；
+- 创造栏 `Item.Properties#tab(CreativeModeTab.TAB_TOOLS)`；
+- **`core/Log` 要换 log4j2**（1.16.5 类路径上没有 slf4j，直接 `NoClassDefFoundError: org/slf4j/LoggerFactory`
+  崩在 `McVerMod.<clinit>`），复用 Fabric 那份 `mod/src/compat/1.16/java`；
+- 1.16.5 跑 Java 8 → target `java: 8`，顺手把 `modx/shims21/ChromeScreen` 的
+  `instanceof X y` 模式匹配改成老写法（`-source 8` 不支持），对 1.20+ 无影响。
+
+### 回归
+
+映射管线动了核心，重新生成 1.20.1 的映射确认 `renamed=0`（tsrg2 恒等，符合预期），
+并重建 + 重验 Forge 1.17.1（`--patched` + tsrg2 那条路）。

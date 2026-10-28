@@ -26,7 +26,7 @@
 //   universal-<loaderVer>-mojmap.jar
 //   srg2mojmap.tiny / mojmap2srg.tiny
 import { execFileSync } from 'node:child_process';
-import { existsSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 
 const argv = process.argv.slice(2);
@@ -49,6 +49,7 @@ const LIBS = join(GAME, 'libraries');
 const OUT = join(ROOT, 'modx', 'srg', mc);
 const JDK = 'D:\\Program Files\\Java\\jdk-21.0.7\\bin';
 const JAVA = join(JDK, 'java.exe');
+const JAR = join(JDK, 'jar.exe');
 
 mkdirSync(OUT, { recursive: true });
 
@@ -150,34 +151,51 @@ function mapDesc(desc, map) {
   });
 }
 
-// ---------- tsrg2：obf -> srg ----------
+// ---------- tsrg：obf -> srg（两个世代的格式不一样，都要吃） ----------
+// **tsrg2**（1.17+）：
 //   <obfClass> <srgClass> <id>
 //   \t<obfName> <srgName> <id>              字段
-//   \t<obfName> <desc> <srgName> <id>       方法（desc 是类 id 命名空间）
+//   \t<obfName> <desc> <srgName> <id>       方法（desc 是 obf 类名命名空间）
 //   \t\t<idx> <obfVar> <srgVar> <id>        局部变量（跳过）
+// **tsrg v1**（≤1.16.5，无文件头）：
+//   <obfClass> <srgClass>
+//   \t<obfName> <srgName>                   字段
+//   \t<obfName> <desc> <srgName>            方法
+// 判别式只看文件头 `tsrg2` —— 1.16.5 那份第一行直接就是类映射（`a net/minecraft/...`），
+// 以前按 v2 解析（要求 3 列）会把**每一行都当垃圾扔掉**，最后映射表只剩一个 20 字节的文件头，
+// 「mojmap jar」其实是 SRG jar 原件 —— 这就是当初误判成「1.16.5 官方映射残缺」的根因。
 function parseTsrg(path) {
   const obf2srgClass = new Map();
   const srg2obfClass = new Map();
   const meta = new Map();
   let cur = null;
-  for (const raw of readFileSync(path, 'utf8').split(/\r?\n/)) {
-    if (!raw || raw.startsWith('tsrg2')) continue;
+  const lines = readFileSync(path, 'utf8').split(/\r?\n/);
+  const isV2 = lines.some((l) => l.startsWith('tsrg2'));
+  for (const raw of lines) {
+    if (!raw || raw.startsWith('tsrg2') || raw.startsWith('#')) continue;
     if (!raw.startsWith('\t')) {
       const tk = raw.trim().split(/\s+/);
-      if (tk.length !== 3) continue;
+      if (tk.length < 2) continue;
       obf2srgClass.set(tk[0], tk[1]);
       if (!srg2obfClass.has(tk[1])) srg2obfClass.set(tk[1], tk[0]);
       cur = { fields: [], methods: [] };
       meta.set(tk[0], cur);
     } else if (raw.startsWith('\t\t')) {
-      continue;
+      continue; // 局部变量（只有 v2 有）
     } else if (cur) {
       const tk = raw.trim().split(/\s+/);
-      if (tk.length === 4) { if (tk[1] !== '()V' || tk[2] !== '<clinit>') cur.methods.push([tk[0], tk[2], tk[1]]); }
-      else if (tk.length === 3 && tk[1] !== 'static') cur.fields.push([tk[0], tk[1]]);
+      if (isV2) {
+        // v2 的 srg 名在第 3 列、方法描述符在第 2 列
+        if (tk.length === 4) { if (tk[1] !== '()V' || tk[2] !== '<clinit>') cur.methods.push([tk[0], tk[2], tk[1]]); }
+        else if (tk.length === 3 && tk[1] !== 'static') cur.fields.push([tk[0], tk[1]]);
+      } else {
+        // v1：`obf srg` 或 `obf (desc) srg`；字段的 srg 名不含括号
+        if (tk.length === 3) { if (tk[2] !== '<clinit>') cur.methods.push([tk[0], tk[2], tk[1]]); }
+        else if (tk.length === 2 && tk[1] !== 'static') cur.fields.push([tk[0], tk[1]]);
+      }
     }
   }
-  return { obf2srgClass, srg2obfClass, meta };
+  return { obf2srgClass, srg2obfClass, meta, isV2 };
 }
 
 // ---------- Mojang proguard：左官方名 / 右混淆名 ----------
@@ -230,19 +248,45 @@ const mojPath = await clientMappings();
 console.log(`tsrg:   ${tsrgPath}`);
 console.log(`client: ${clientSrg}`);
 
-const { obf2srgClass, srg2obfClass, meta: srgMeta } = parseTsrg(tsrgPath);
+const { obf2srgClass, srg2obfClass, meta: srgMeta, isV2 } = parseTsrg(tsrgPath);
 const { obf2mojClass, meta: mojMeta } = parseMojmap(mojPath);
-console.log(`STATS tsrg=${obf2srgClass.size} mojmap=${obf2mojClass.size}`);
+console.log(`STATS tsrg=${obf2srgClass.size} (${isV2 ? 'v2' : 'v1'}) mojmap=${obf2mojClass.size}`);
 
-// srg 类 id -> 官方类名（备用；tsrg2 的**方法描述符其实是 obf 命名空间**，见下）
-const srgId2mojClass = new Map();
+// srg 源命名空间怎么取：
+//   **tsrg2（1.17+）**：srg 类名是 `net/minecraft/src/C_182965_` 这种**类 id**，而运行时
+//   `client-*-srg.jar` 里的类名是**官方包名** → 类映射只能恒等（早期就踩过，错在把 id 当类名）。
+//   **tsrg v1（≤1.16.5）**：srg 类名就是 jar 里的真实包名（`gui/FontRenderer`、`gui/AbstractGui`），
+//   而 mojmap 那边叫 `Font` / `Gui` → **必须真改名**，否则源码引 `Font` 编不过。
+// 所以按世代选「源命名空间」：v2 用 mojmap 名当源（恒等），v1 用 srg 名当源（真改）。
+const SRG_ID = /^net\/minecraft\/src\/C_\d+_$/;
+const classRenames = isV2 ? 0 : [...obf2srgClass.values()].filter((c) => !SRG_ID.test(c)).length;
+if (isV2 && classRenames > 0) console.log('WARN tsrg2 里有非 C_ id 的 srg 类名，按恒等处理');
+const obf2srcClass = new Map();
 for (const [obf, srg] of obf2srgClass) {
   const moj = obf2mojClass.get(obf);
-  if (moj) srgId2mojClass.set(srg, moj);
+  if (!moj) continue;
+  obf2srcClass.set(obf, isV2 ? moj : srg);
+}
+// 官方类名 -> 源命名空间类名（字段描述符在 Mojang txt 里是官方名，tiny 要源命名空间）
+const official2src = new Map();
+for (const [obf, src] of obf2srcClass) {
+  const moj = obf2mojClass.get(obf);
+  if (moj && !official2src.has(moj)) official2src.set(moj, src);
+}
+function descToSrc(desc) {
+  return desc.replace(/L([^;]+);/g, (all, cls) => {
+    const to = official2src.get(cls);
+    return to ? 'L' + to + ';' : all;
+  });
 }
 
-const classes = []; // [cls, cls]（恒等）
-const members = []; // [cls, kind, srgName, mojName, desc]
+const classes = []; // [srcClass, mojClass]
+const members = []; // [srcClass, kind, srcName, mojName, srcDesc]
+// 反向（reobf 用）：类对换顺序，**描述符也必须换回 mojmap 命名空间**。
+// 1.17+ 类映射恒等，所以以前只倒名字也能跑；1.16.5 真改类名了，倒错了就 reobf 不到
+// （运行时 NoClassDefFoundError: net/minecraft/world/item/Item —— 跑了整整一轮才看出来）。
+const classesRev = []; // [mojClass, srcClass]
+const membersRev = []; // [mojClass, kind, mojName, srcName, mojDesc]
 let noClass = 0;
 let fieldHits = 0;
 let methodHits = 0;
@@ -250,28 +294,34 @@ let methodMiss = 0;
 for (const [obfClass, info] of srgMeta) {
   const mojClass = obf2mojClass.get(obfClass);
   const mm = mojMeta.get(obfClass);
-  if (!mojClass || !mm) { noClass++; continue; }
-  classes.push([mojClass, mojClass]);
+  const srcClass = obf2srcClass.get(obfClass);
+  if (!mojClass || !mm || !srcClass) { noClass++; continue; }
+  classes.push([srcClass, mojClass]);
+  classesRev.push([mojClass, srcClass]);
   for (const [obfName, srgName] of info.fields) {
     const rec = mm.fields.get(obfName);
     if (!rec || !rec.official || rec.official === srgName) continue;
-    members.push([mojClass, 'f', srgName, rec.official, typeToDesc(rec.type)]);
+    const mojDesc = typeToDesc(rec.type);
+    members.push([srcClass, 'f', srgName, rec.official, descToSrc(mojDesc)]);
+    membersRev.push([mojClass, 'f', rec.official, srgName, mojDesc]);
     fieldHits++;
   }
   for (const [obfName, srgName, srgDesc] of info.methods) {
-    // tsrg2 里方法描述符用的是 **obf 类名**（`(Lcuk;Lhx;)Z`），不是类 id。
-    // 曾经拿 srgId2mojClass 去换（错）——只有参数全是基本类型的方法才对得上，覆盖率 34%→修完 100%。
+    // tsrg 里方法描述符用 **obf 类名**（`(Lcuk;Lhx;)Z`）。
+    // JOIN 的 key 用 mojmap 命名空间；写进 tiny 的正向描述符要 **srg 命名空间**。
     const mojDesc = mapDesc(srgDesc, obf2mojClass);
+    const srcDesc = mapDesc(srgDesc, obf2srcClass);
     // 严格按「obf 名 + 完整 JVM 描述符」JOIN。不做「名字唯一就当它」的兜底：
     // obf 同名不同描述符的重载很常见，兜底会把 stacksTo 错配成 durability（真踩过）。
     const rec = mm.methods.get(obfName + '\u0000' + mojDesc);
     if (!rec) { methodMiss++; continue; }
     if (!rec.official || rec.official === srgName) continue;
-    members.push([mojClass, 'm', srgName, rec.official, mojDesc]);
+    members.push([srcClass, 'm', srgName, rec.official, srcDesc]);
+    membersRev.push([mojClass, 'm', rec.official, srgName, mojDesc]);
     methodHits++;
   }
 }
-console.log(`STATS classes=${classes.length} skip=${noClass} fields=${fieldHits} methods=${methodHits} miss=${methodMiss} total=${members.length}`);
+console.log(`STATS classes=${classes.length} skip=${noClass} fields=${fieldHits} methods=${methodHits} miss=${methodMiss} total=${members.length} renamed=${classes.filter(([a, b]) => a !== b).length}`);
 
 // tiny v2：成员行是「描述符在前」（`m <desc> <src> <dst>`）。
 // 试过 desc 在末尾会被 mapping-io 当成名字列 → missing name columns（字段名只有一两个字符时必现）。
@@ -294,7 +344,7 @@ function writeTiny(path, from, to, clsPairs, memPairs) {
 const srgTiny = join(OUT, 'srg2mojmap.tiny');
 const mojTiny = join(OUT, 'mojmap2srg.tiny');
 writeTiny(srgTiny, 'srg', 'mojmap', classes, members);
-writeTiny(mojTiny, 'mojmap', 'srg', classes, members.map(([cls, k, s, m, d]) => [cls, k, m, s, d]));
+writeTiny(mojTiny, 'mojmap', 'srg', classesRev, membersRev);
 
 // ---------- remap jar ----------
 function remap(input, output, mappings, from, to, extraCp = []) {
@@ -305,8 +355,55 @@ function remap(input, output, mappings, from, to, extraCp = []) {
   });
 }
 
+// 把 overlay 盖到 base 上（overlay 优先），用 JDK 自带的 jar 工具解/打，不引第三方 zip 库。
+function mergeJars(baseJar, overlayJar, outJar) {
+  console.log(`  merge ${baseJar.split(/[\\/]/).pop()} <- ${overlayJar.split(/[\\/]/).pop()}`);
+  const work = join(OUT, '.merge');
+  rmSync(work, { recursive: true, force: true });
+  const a = join(work, 'base');
+  const b = join(work, 'over');
+  mkdirSync(a, { recursive: true });
+  mkdirSync(b, { recursive: true });
+  execFileSync(JAR, ['xf', baseJar], { cwd: a });
+  execFileSync(JAR, ['xf', overlayJar], { cwd: b });
+  // 目录递归拷，同路径以 overlay 覆盖；MANIFEST 以 base 为准（overlay 的是补丁包自己的）
+  const copyTree = (from, to) => {
+    for (const e of readdirSync(from, { withFileTypes: true })) {
+      const s = join(from, e.name);
+      const d = join(to, e.name);
+      if (e.isDirectory()) {
+        mkdirSync(d, { recursive: true });
+        copyTree(s, d);
+      } else {
+        if (e.name === 'MANIFEST.MF' && to.endsWith(join('META-INF'))) continue;
+        writeFileSync(d, readFileSync(s));
+      }
+    }
+  };
+  copyTree(b, a);
+  rmSync(outJar, { force: true });
+  execFileSync(JAR, ['cf', outJar, '-C', a, '.'], { stdio: 'inherit' });
+  rmSync(work, { recursive: true, force: true });
+}
+
 const clientOut = join(OUT, `client-${mc}-mojmap.jar`);
-remap(clientSrg, clientOut, srgTiny, 'srg', 'mojmap');
+if (usePatched) {
+  // Forge 的 `-client.jar` 世代不同：
+  //   • 1.17.1（Forge 37）是全量 jar（含整个游戏 + 补丁）
+  //   • **1.16.5（Forge 36）只是增量补丁包 —— 1275 个类，连 Font/Button/Minecraft 之外的基础类都缺**
+  // 所以 --patched 统一走「原版 srg jar remap 出全量 + Forge 补丁包 remap 出覆盖层 + 合并」，
+  // 否则编译期会满屏「找不到符号 Font」——而且 jar 里有 Minecraft 却什么都没有，很难看出原因。
+  const vanillaJar = findClientSrg();
+  const vanillaOut = join(OUT, `.vanilla-${mc}-mojmap.jar`);
+  const patchOut = join(OUT, `.patched-${mc}-mojmap.jar`);
+  remap(vanillaJar, vanillaOut, srgTiny, 'srg', 'mojmap');
+  remap(clientSrg, patchOut, srgTiny, 'srg', 'mojmap');
+  mergeJars(vanillaOut, patchOut, clientOut);
+  rmSync(vanillaOut, { force: true });
+  rmSync(patchOut, { force: true });
+} else {
+  remap(clientSrg, clientOut, srgTiny, 'srg', 'mojmap');
+}
 
 const loaderVer = forgeVer || neoVer;
 const loaderGroup = forgeVer ? 'net/minecraftforge/forge' : 'net/neoforged/neoforge';
