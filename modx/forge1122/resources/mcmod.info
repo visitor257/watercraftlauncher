@@ -1,0 +1,13 @@
+[
+  {
+    "modid": "mcver",
+    "name": "Water Craft Launcher",
+    "description": "在游戏里下载并启动其它 Minecraft 版本。",
+    "version": "1.0.0",
+    "mcversion": "1.12.2",
+    "authorList": ["mcver"],
+    "logoFile": "",
+    "clientSideOnly": true,
+    "requiredMods": []
+  }
+]

@@ -1070,3 +1070,91 @@ mcver: spike registered=mcver:download_tool
    外加 `mcmod.info`。
 4. **新实例**：`V1.12.2-FORGE` 目前这个 json **根本没有 Forge 库**（`mainClass=net.minecraft.client.main.Main`），
    是坏的；真实验证要用 `1.12.2-forge-14.23.5.2864`（`inheritsFrom: 1.12.2`，登录器能正确合并）。
+
+## 22. 2026-10-28（第六轮）：Forge 1.12.2 —— 垫片方案落地，真 target 过了像素验收
+
+**结果**：Forge 1.12.2（14.23.5.2864，实例 `1.12.2-forge-14.23.5.2864`）
+**PASS —— `C6C6C6 / 15076 / children=17 / 870x519`**。
+
+§21 那四块全部做完，页面代码**零改动**（41 个共享源文件一行没动）。
+
+### 22.1 做法：垫片 + 源码替换，不动页面
+
+`scripts/build-1122forge.mjs` 的流水线：
+
+```
+mk-mojmap-src（yarn → mojmap）
+  → 文本替换 net.minecraft.client.Minecraft → dev.mcver.bridge.Minecraft   ← 必须在盖 overlay 之前
+  → 盖 shim1122/java（1.14 时代类名）+ forge1122/java（overlay）
+  → javac --release 8（classpath = SRG 原版 + SRG Forge + 实例库）
+  → 合资源（mcmod.info + textures/items 布局）→ jar
+```
+
+**顺序踩过一次**：替换放在盖 overlay 之后，会把 bridge 自己里面
+`net.minecraft.client.Minecraft` 也换成 `dev.mcver.bridge.Minecraft`，于是
+`dev.mcver.bridge.Minecraft.func_71410_x()` 找不到符号 —— 自我引用。
+
+### 22.2 垫片清单（`modx/shim1122/java`）
+
+| 1.14 时代名字（页面代码在用） | 1.12.2 真实名字 | 备注 |
+| --- | --- | --- |
+| `net.minecraft.network.chat.Component` | `net.minecraft.util.text.ITextComponent` | 包不存在 → 可安全放垫片 |
+| `net.minecraft.client.gui.Font` | `FontRenderer` | width / plainSubstrByWidth 两个方法 |
+| `net.minecraft.client.gui.screens.Screen` | `GuiScreen` | 补 `width`/`height`/`font`/`init`/`tick`/`children()` |
+| `net.minecraft.client.gui.screens.TitleScreen` | — | 纯占位 |
+| `net.minecraft.client.gui.components.AbstractWidget` | — | **接口**（1.12.2 没有 widget 基类） |
+| `net.minecraft.client.gui.components.Button` | `GuiButton` | 覆盖 `func_146116_c` 做回调 |
+| `net.minecraft.client.gui.components.EditBox` | `GuiTextField` | setText/getText/setMaxLength/setResponder |
+| `net.minecraft.world.item.ItemStack` / `Items` | `net.minecraft.item.*` / `init.Items` | Paper 走 `Item.func_111206_d("minecraft:paper")` |
+| `net.minecraft.Util` | `net.minecraft.util.Util`（不同包） | openUri 用 AWT Desktop 兜底 |
+| **`net.minecraft.client.Minecraft`** | **同名存在 → 不能垫片** | 换 `dev.mcver.bridge.Minecraft` 门面 + 源码替换 |
+
+**唯一撞名的就是 `Minecraft`**。同名垫片进 mod jar 会跟原版抢，而 LaunchClassLoader 的
+URL 顺序不保证谁赢 —— 那种 bug 只在某些启动路径上露头，最难查。所以换包 + 文本替换：
+`import` 里的全限定名整串换掉，简单名 `Minecraft` 不变，页面代码因此一行都不用改。
+
+### 22.3 SRG 名字速查（这轮实测，别再猜）
+
+- `GuisScreen.func_146280_a(Minecraft,int,int)` **不调** `func_183500_a`：它自己设
+  `field_146294_l/m` 然后直接 `func_73866_w_()`。所以想同步自己的 `width/height`，必须
+  override `func_146280_a` 并在 **super 之前**赋值，否则 `init()` 里读到 `gui=0x0`、
+  `panel=-6x-6`、`children` 少一个（**踩过**）。
+- 菜单添加控件：`func_189646_b(T)`（`addButton` 是 1.13+ 的名字）。
+- `GuiButton` 点击钩子：`func_146116_c(Minecraft,int,int)`；播放音效 `func_146113_a(SoundHandler)`；
+  Minecraft 的 SoundHandler 是 `func_147118_V()`。
+- `Item`：`func_77655_b`（setUnlocalizedName）、**`func_77625_d`**（setMaxStackSize，不是 `func_77638_a`）、
+  `func_77637_a`（setCreativeTab）、`func_111206_d`（getByNameOrId）。
+- `FontRenderer`：`func_175063_a(String,float,float,int)` 带阴影、`func_78276_b` 不带、
+  `func_78256_a`（宽）、`func_78262_a(String,int,boolean)`（截字，**三参**）。
+- `RenderItem.func_175042_a(ItemStack,int,int)`（Minecraft 的 `func_175599_af()`）。
+- `GuiScreen.func_146275_d` / `func_146277_j`（剪贴板 set/get，**静态**）。
+- 会话：`Minecraft.func_110432_I()` → `net.minecraft.util.Session`；
+  uuid `func_148255_b`、名字 `func_111285_a`、token `func_148254_d`。
+- `net.minecraft.util.text.TextComponentString`（**不是** `TextComponent`）。
+
+### 22.4 1.12.2 的 GUI 结构与后面几代的三处根本差异
+
+1. **`func_73863_a` 不画背景**：1.13+ 才有「Screen 自己调 renderBackground」的约定。
+   这里面板由 `ChromeScreen` 在 `super` 之前自己铺。
+2. **没有滚轮回调**：得覆盖 `func_146274_d()`（handleMouseInput）读
+   `Mouse.getEventDWheel()`，再换算成逻辑坐标（`* width / field_71443_c`，Y 轴要翻转）。
+3. **输入框不是控件**：`GuiTextField` 不进 `field_146292_n`，`GuiScreen` 既不画它也不转键盘。
+   `ChromeScreen` 自己存一份、自己画、自己转（连 `children()` 都得合并成一份视图，
+   否则 debug 里的 `children` 比别人少一个，横向判据就断了）。
+4. 另外：`creativeTab` 是 `field_78027_g`（TOOLS，按 SRG 字段顺序推的，纯外观），
+   `mcmod.info` 取代 `mods.toml`，贴图在 `textures/items/`（复数）而不是 `textures/item/`。
+
+### 22.5 现在累计
+
+- Fabric：16（1.7.10 ~ 1.21.11）
+- Forge：**12**（**1.12.2** / 1.14.4 / 1.16.5 / 1.17.1 / 1.18.2 / 1.19.4 / 1.20.1 / 1.20.2 / 1.20.4 / 1.20.6 / 1.21.1 / 1.21.4）
+- NeoForge：6（20.1 / 20.2 / 20.4 / 20.6 / 21.1 / 21.4）
+
+### 22.6 还没做
+
+- **Forge 1.7.10**：本地有实例（`1.7.10-Forge10.13.4.1614-1.7.10`），但 FML 包名是
+  `cpw.mods.fml`（1.8+ 才是 `net.minecraftforge.fml`），注册表是 `GameRegistry.registerItem`，
+  渲染是 `GuiScreen.func_73863_a` + `FontRenderer` 但类在 `net.minecraft.client.gui`。
+  再垫一层就能通，但收益低（1.7.10 的启动器需求也少），先记在这儿。
+- **Forge 1.15.2**：本地没实例，要先装。
+- **MC 26.1 / Forge 62**：class 69 / Java 25、`ResourceLocation`→`Identifier`、loader 拆模块。
