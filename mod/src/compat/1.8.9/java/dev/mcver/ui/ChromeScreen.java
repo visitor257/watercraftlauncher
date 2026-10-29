@@ -48,7 +48,7 @@ public abstract class ChromeScreen extends Screen {
     /** 面板底、标题栏、导航分割线。 */
     protected abstract void drawChrome(Ctx ctx);
 
-    protected void addWidget(Object w) {
+    protected void addControl(Object w) {
         if (w instanceof ButtonWidget) {
             // 1.9~1.10 没有 addButton(T)，只有 buttons 列表
             buttons.add((ButtonWidget) w);

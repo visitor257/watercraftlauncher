@@ -59,7 +59,7 @@ public abstract class ChromeScreen extends Screen {
     protected abstract boolean onScroll(double mouseX, double mouseY, double horizontal, double vertical);
 
     /** 加控件：按钮进 {@code buttons}，输入框进自己的表 + 元素表。 */
-    protected void addWidget(Object w) {
+    protected void addControl(Object w) {
         if (w instanceof ButtonWidget) {
             addButton((ButtonWidget) w);
         } else if (w instanceof TextFieldWidget) {

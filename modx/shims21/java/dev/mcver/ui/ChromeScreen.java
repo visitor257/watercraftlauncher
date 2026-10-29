@@ -63,7 +63,7 @@ public abstract class ChromeScreen extends Screen {
      * 按 Fabric 那套（yarn 的 {@code addDrawableChild} 收 ClickableWidget 子类）写的，
      * 1.20.4 的 {@code Screen#addWidget} 泛型上限是 {@code GuiEventListener & NarratableEntry}，
      * 传 Object 编不过。在这里收窄成运行时判断，其他 target 行为不变。 */
-    protected void addWidget(Object w) {
+    protected void addControl(Object w) {
         // 写成老式 instanceof + 强转：MC 1.16.5 跑在 Java 8，主源码整体是 Java 8 语言级，
         // 这里的 `instanceof X y` 模式匹配在 -source 8 下编不过。
         if (w instanceof AbstractWidget) {
@@ -73,7 +73,7 @@ public abstract class ChromeScreen extends Screen {
 
     /** 泛型版：返回原对象，方便链式写法。 */
     protected <T extends AbstractWidget> T add(T w) {
-        addWidget(w);
+        addControl(w);
         return w;
     }
 

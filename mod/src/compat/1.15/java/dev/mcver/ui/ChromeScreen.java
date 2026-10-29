@@ -34,7 +34,7 @@ public abstract class ChromeScreen extends Screen {
     protected abstract void drawChrome(Ctx ctx);
 
     /** 加控件：1.15 只有 {@code addButton(AbstractButtonWidget)}。 */
-    protected void addWidget(Object w) {
+    protected void addControl(Object w) {
         addButton((net.minecraft.client.gui.widget.AbstractButtonWidget) w);
     }
 

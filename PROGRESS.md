@@ -2298,3 +2298,108 @@ Fabric 侧的图标/配方问题不是一个补丁能解决的：**Legacy Fabric
 （日志里 `Reloading ResourceManager: Default` 后面没有 `ModResourcePack`，Forge 那边就有
 `FMLFileResourcePack: Water Craft Launcher`）。要修得依赖 `fabric-resource-loader-v0`（Fabric API 的模块），
 等于给 mod 加一个硬依赖。待定，看用户用不用 Fabric 老版本。
+
+---
+
+## 37. 2026-10-29（第十九轮）：输入框打不进字 / 只能打一个字 / Forge 1.17+ 控件全消失
+
+用户报「1.12.2 Forge 上启动器的输入框输入不了东西」。查下去是**三个独立的 bug**，
+其中最要命的那个从 10-28 起让 14 个 Forge/NeoForge target 的面板「看得见、点不到」。
+
+### 37.1 输入框永远拿不到焦点（1.8.9 ~ 1.12.2，5 个 jar）
+
+1.12 的 `GuiScreen` 只把鼠标点击分发给 `field_146292_n`（按钮列表），`GuiTextField`
+**不在那个列表里**。五个老 Forge overlay（`forge189` / `forge194` / `forge102` / `forge1122`）
+都把输入框自己存了一份、自己画、自己转键盘，**唯独没转发鼠标点击** →
+`func_146206_l()`（isFocused）永远 false → `func_73869_a` 里的焦点判断永远不成立 →
+打字全被吞，而且不报任何错。
+
+修法：四个 overlay 各补一个 `func_73864_a`（mouseClicked），照 `forge1710` 已有的写法：
+
+```java
+for (GuiTextField f : textFields) f.func_146192_a(mouseX, mouseY, button);
+super.func_73864_a(mouseX, mouseY, button);
+```
+
+`forge102` 同时服务 1.10.2 和 1.11.2，所以 5 个 jar 一次修完。
+
+### 37.2 搜索框只能打一个字（所有版本，共享代码）
+
+`DownloadPage` 的 changed 回调里调 `rebuild()` → `MainScreen.rebuild()` →
+`clearWidgets()` + `init()` → `initList()` **new 了一个全新的输入框**。
+焦点是控件实例自己的属性，新实例默认不聚焦 → 第二个字符开始全丢。
+
+测出来的样子（`MCVER_DEBUG_INPUT=1` 的输入日志）：
+
+```
+input: click x=248 y=49 ... focused=1
+input: key c=49 k=2 focused=1     ← 第一个字，正常
+input: key c=55 k=8 focused=0     ← 第二个字，焦点已经没了
+mcver: 分类=正式 搜索=1 共=101 个   ← 日志里也确实只有 1 个字符
+```
+
+修法：`DownloadPage` 记住「这次重建是输入触发的」，建完把焦点还给新框。
+**不能直接写 `searchField.setFocused(true)`** —— 1.14 的 `AbstractButtonWidget#setFocused`
+是 `protected`（直接调编不过，第一版就是把 gradle 那步搞挂的），1.17+ 才是 public，
+1.7~1.12 的 SRG 垫片里是 `func_146195_b`。所以新增 `ui/Focus.java` 用反射按名字找，
+并给 5 个 SRG 垫片的 `EditBox` 补了 `setFocused/isFocused` 转发。
+
+> 为什么不放在 `Field` 里：`mod/src/compat/<版本>/` 会**整文件覆盖** `Field.java`，
+> 加在那等于每个 compat 复制一遍。`Focus` 不在任何 compat 里，所有 target 共用。
+
+### 37.3 Forge/NeoForge 1.17.1+ 控件全消失（14 个 jar，最严重）
+
+现象：面板、标题、页内容文字都正常，**页签/按钮/输入框/关闭 ✕ 一个都看不见，
+而且点也点不到**；同一个 MC 版本的 Fabric 完全正常。像素验收一直「PASS」，
+因为判据只数面板色像素 —— 空面板也满足。
+
+排查过程（值得记下来，因为这层的证据不好拿）：
+
+1. 反射 dump 每个控件的矩形 → `Button @34,42 62x15 vis=true`，**尺寸位置全对**；
+2. 关掉我们自己的面板（`MCVER_DEBUG_NOCHROME`）→ 控件仍然不出现；
+3. 关掉页内容（`MCVER_DEBUG_NOCONTENT`）→ 仍然不出现；
+4. 数 `renderBackground` 调用次数 → 120 帧 120 次，排除「面板画第二遍盖住控件」；
+5. **反射 dump `Screen` 内部三个 List** → `children=17 / narratables=17 / renderables=0`。
+
+`renderables=0` 就是答案：控件只登记进了「能点」的列表，没进「要画」的列表。
+
+根因是**重载解析**：1.17.1+ 的原版 `Screen` 自己就有
+`<T extends GuiEventListener & NarratableEntry> T addWidget(T)`，语义是
+**只加 children + narratables，不加 renderables**。我们的辅助方法叫 `addWidget(Object)`，
+参数比它更宽 —— javac 在调用点选了原版那个更具体的泛型方法。
+Fabric 那边原版叫 `addDrawableChild`，没有同名冲突，所以只有 Forge/NeoForge 中招。
+
+**修法：把我们那个辅助方法改名 `addControl`**（main + 15 个 compat + 13 个 overlay，
+外加 3 处调用点）。**别再改回 `addWidget`**，`modx/shims201`/`shims21` 的方法注释里写了原因。
+
+验收（1.20.1 Forge，`gui-V1.20.1-FORGE.png`）：
+
+| | 修复前 | 修复后 |
+| --- | --- | --- |
+| 面板色像素 `hits` | 19468（空面板） | **15063**（面板被控件盖住一部分） |
+| 控件 | 一个都看不见 | 页签/目录切换/内存框/4 个按钮/✕ 全在 |
+| 真点输入框 + 打字 | 点不到 | **PASS**：搜索框收到 `17`，列表筛到 2 条 |
+
+> 判据的教训：`hits` 变小反而是好事 —— 说明有东西画在面板上面了。
+> 「面板色像素够多」根本不能证明界面可用。
+
+### 37.4 新工具：`scripts/verify-typing.ps1`
+
+真起游戏 → 点输入框（`mouse_event`）→ 打字（`keybd_event`）→ 只认点击之后新出现的
+`分类=… 搜索=17 …` 行。老版本没有可用的「打字」验收，这个补上了。
+
+它自己踩了四个坑，都已经写进脚本注释：
+
+1. **老版本日志被 log4j 独占**，游戏活着时 `File.ReadAllBytes` 直接抛异常 →
+   两段式：先用可实时读的 `mcver-debug.txt` 判就绪，**杀进程后**再读日志取布局；
+2. **日志编码不一定是 UTF-8**（≤1.12.2 是 GBK），按 UTF-8 解会把中文标记变成 `?`，
+   造成「明明有证据却 FAIL」→ 改成按「有没有 U+FFFD」判编码；
+3. **窗口没拿到前台时输入会被系统丢掉**（实测：点击和按键 mod 一个都没收到）→
+   `ShowWindow(9)` + `SetForegroundWindow` + 校验 `GetForegroundWindow`，抢不到先敲一下 ALT；
+4. **Forge 1.17+ 的游戏进程命令行不带 mcver 品牌**（走 BootstrapLauncher）→
+   按品牌杀会漏、日志一直被占；改成「杀掉本次启动之后新起的 java」。
+
+顺手加的排查开关（环境变量，默认不生效）：
+`MCVER_DEBUG_INPUT`（1.12.2 overlay 的点击/按键/焦点）、
+`MCVER_DEBUG_BOUNDS`（控件矩形 + Screen 内部 List 条数）、
+`MCVER_DEBUG_NOCHROME` / `MCVER_DEBUG_NOCONTENT` / `MCVER_DEBUG_MANUALRENDER`。

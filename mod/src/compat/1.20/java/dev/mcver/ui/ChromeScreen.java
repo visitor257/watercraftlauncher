@@ -45,7 +45,7 @@ public abstract class ChromeScreen extends Screen {
     protected abstract void drawChrome(Ctx ctx);
 
     /** 加一个控件（各版本钩子名不同，统一走这里）。 */
-    protected void addWidget(Object w) {
+    protected void addControl(Object w) {
         addDrawableChild((ClickableWidget) w);
     }
 

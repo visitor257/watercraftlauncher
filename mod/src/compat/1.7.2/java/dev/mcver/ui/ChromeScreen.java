@@ -100,7 +100,7 @@ public abstract class ChromeScreen extends Screen {
         return field_22533;
     }
 
-    protected void addWidget(Object w) {
+    protected void addControl(Object w) {
         if (w instanceof ButtonWidget) {
             field_22537.add((ButtonWidget) w);
         } else if (w instanceof TextFieldWidget) {

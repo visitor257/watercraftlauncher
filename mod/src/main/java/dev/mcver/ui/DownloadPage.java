@@ -67,6 +67,8 @@ public class DownloadPage extends Page {
     private int statusColor = MainScreen.C_DIM;
 
     private TextFieldWidget searchField;
+    /** 这次重建是从搜索框的输入触发的 —— 建完要把焦点还回去（见 initList）。 */
+    private boolean focusSearchAfterRebuild;
     private TextFieldWidget nameField;
 
     /** 终止下载的二次确认状态。 */
@@ -156,9 +158,17 @@ public class DownloadPage extends Page {
         searchField = Field.of(this.tr(), x, host.contentY() + 1, w, 16, "搜索版本号");
         searchField.setMaxLength(32);
         searchField.setText(query);
+        if (focusSearchAfterRebuild) {
+            focusSearchAfterRebuild = false;
+            Focus.apply(searchField, true);        }
         searchField.setChangedListener(s -> {
             query = s;
             page = 0;
+            // rebuild() 会把包括搜索框在内的控件全部重建，焦点是控件实例自己的
+            // 属性，新实例默认不聚焦 —— 不还回去的话，第二个字符就没人接收，
+            // 表现为「搜索框只能打一个字」（2026-10-29 实测：第二次按键时
+            // focused=0，日志里只有 搜索=1）。
+            focusSearchAfterRebuild = true;
             rebuild();
         });
         add(searchField);

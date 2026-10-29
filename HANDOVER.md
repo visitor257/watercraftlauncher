@@ -1,6 +1,6 @@
 # HANDOVER — Water Craft Launcher（mcver）接力手册
 
-> 更新：**2026-10-29 19:50**（这次是「老 Forge 全家右键/配方/图标」收尾之后）。
+> 更新：**2026-10-29 23:50**（这次是「输入框打不进字 / Forge 1.17+ 控件全消失」修完之后，见 §6.6）。
 > 给**另一台电脑上的下一个人（或 AI）**看：怎么跑起来、代码怎么组织、哪些坑已经踩过、怎么验证。
 > 不重复 README 的功能介绍，也不重复 PROGRESS.md 的逐轮流水账。
 >
@@ -360,6 +360,26 @@ powershell -ExecutionPolicy Bypass -File scripts\verify-matrix.ps1 -Only 1.21.4
 - **插成员不能拿「行尾」当锚点**（会把代码插进构造器里，javac 报 `';' expected`）。
   要按大括号层级找位置。
 - 每次批量改完断言文件里没有 `\uFFFD`（乱码哨兵）。
+
+### 6.6 输入 / 焦点 / 控件注册（2026-10-29 一天踩出三个 bug）
+
+- **老版本的 `GuiTextField` 不在 `field_146292_n` 里**：`GuiScreen` 只把点击分发给按钮。
+  只写「画它 + 转键盘」是不够的 —— 不转发 `func_73864_a`（mouseClicked）就永远没有焦点，
+  键盘判断那一行永远不成立，**打字全被吞且零报错**。1.8.9/1.9.4/1.10.2/1.11.2/1.12.2 五个 target 都是这个毛病。
+- **`Screen#addWidget` 是个陷阱（1.17.1+）**：原版那个泛型方法**只加 children + narratables，
+  不加 renderables** —— 结果是「能点、但永远不画」。我们的辅助方法一旦也叫 `addWidget`，
+  javac 会选原版那个更具体的（参数更窄）。本项目因此把它改名 `addControl`，**别再改回去**。
+  这也是为什么 Fabric 好好的、Forge/NeoForge 14 个 target 全黑：Fabric 那边原版叫 `addDrawableChild`。
+- **`rebuild()` 会把输入框换成新实例**，焦点跟着旧实例消失 → 用户只能打一个字。
+  要自己还焦点，且 **`setFocused` 的可见性跨版本不同**（1.14 是 protected、1.17+ public、
+  1.7~1.12 是 `func_146195_b`），统一走 `ui/Focus.apply`（反射）。
+- **验收「输入」类 bug 用 `scripts/verify-typing.ps1`**（真点框 + 真打字 + 只认点击后的新日志行）。
+  它踩过的坑：老版本日志被 log4j **独占**（运行中读不了，先杀进程再读）；日志可能是 **GBK**
+  （按 `U+FFFD` 判编码，别按「含 mcver:」判）；**窗口没拿到前台时输入会被系统丢掉**
+  （`ShowWindow(9)` + `SetForegroundWindow` + 校验 `GetForegroundWindow`）；
+  **Forge 1.17+ 的游戏进程命令行不带 mcver 品牌**（走 BootstrapLauncher），按品牌杀会漏。
+- **像素 `hits` 变少不一定是坏事**：修好 Forge 控件后 1.20.1 的 `hits` 从 19468 掉到 15063，
+  因为控件盖住了面板。判据要看截图，不能只看数字。
 
 ---
 

@@ -103,14 +103,14 @@ public class MainScreen extends ChromeScreen {
     @Override
     protected void init() {
         // 右上角关闭：只是把界面收起来，后台安装任务不受影响
-        addWidget(Btn.builder(Txt.of("✕"), b -> this.closeSelf())
+        addControl(Btn.builder(Txt.of("✕"), b -> this.closeSelf())
                 .dimensions(px() + pw() - 16, py() + 4, 13, 13).build());
 
         int y = contentY() + 2;
         for (int i = 0; i < pages.size(); i++) {
             final int idx = i;
             String label = (idx == active ? "▶" : "  ") + pages.get(i).nav();
-            addWidget(Btn.builder(Txt.of(label), b -> switchTo(idx))
+            addControl(Btn.builder(Txt.of(label), b -> switchTo(idx))
                     .dimensions(px() + PAD, y, NAV_W, NAV_ITEM - 3).build());
             y += NAV_ITEM;
         }
@@ -137,9 +137,9 @@ public class MainScreen extends ChromeScreen {
         this.init();
     }
 
-    /** 给 Page 用的公开入口（基类的 addWidget 是 protected）。 */
+    /** 给 Page 用的公开入口（基类的 addControl 是 protected）。 */
     public void add(Object w) {
-        addWidget(w);
+        addControl(w);
     }
 
     // ================================================================ 事件

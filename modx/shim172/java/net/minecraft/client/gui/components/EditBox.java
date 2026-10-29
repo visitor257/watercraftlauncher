@@ -43,6 +43,18 @@ public class EditBox extends net.minecraft.client.gui.GuiTextField implements Ab
         func_146203_f(n);
     }
 
+    /**
+     * 焦点开关。共享页面在「重建控件之后」要把焦点还给新输入框 ——
+     * 否则每敲一个字就被重建一次，只有第一个字能进去（见 DownloadPage 的说明）。
+     */
+    public void setFocused(boolean focused) {
+        func_146195_b(focused);
+    }
+
+    public boolean isFocused() {
+        return func_146206_l();
+    }
+
     /** 1.15+ 的 {@code setChangedListener}。1.7.10 只能靠 {@link #poll()}。 */
     public void setChangedListener(java.util.function.Consumer<String> listener) {
         this.listener = listener;

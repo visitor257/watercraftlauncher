@@ -58,7 +58,7 @@ public abstract class ChromeScreen extends Screen {
     }
 
     /** 加一个控件（别名 {@code addRenderableWidget}）；参数收宽到 Object，见 1.20.1 那份的说明。 */
-    protected void addWidget(Object w) {
+    protected void addControl(Object w) {
         if (w instanceof AbstractWidget aw) {
             addRenderableWidget(aw);
         }
@@ -66,7 +66,7 @@ public abstract class ChromeScreen extends Screen {
 
     /** 泛型版：返回原对象，方便链式写法。 */
     protected <T extends AbstractWidget> T add(T w) {
-        addWidget(w);
+        addControl(w);
         return w;
     }
 

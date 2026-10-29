@@ -68,7 +68,7 @@ public abstract class ChromeScreen extends Screen {
     }
 
     /** 加一个控件。按钮进 buttonList，输入框进自己的表。 */
-    protected void addWidget(Object w) {
+    protected void addControl(Object w) {
         if (w instanceof net.minecraft.client.gui.GuiButton) {
             // 1.12.2 的入口是 func_189646_b（addButton 是 1.13+ 的名字）
             func_189646_b((net.minecraft.client.gui.GuiButton) w);
@@ -85,8 +85,44 @@ public abstract class ChromeScreen extends Screen {
         this.textFields.clear();
     }
 
+    /**
+     * 鼠标点击：先给输入框（它靠这次点击决定焦点），再交给按钮。
+     *
+     * <p><b>这一条以前漏了，后果是「输入框永远打不进字」</b>：1.12.2 的
+     * {@code GuiScreen} 只把点击分发给 {@code field_146292_n}（按钮列表），
+     * 而 {@code GuiTextField} 不在那个列表里（见 {@link #addControl}）。
+     * 没人调它的 {@code func_146192_a} → {@code func_146206_l()}（isFocused）
+     * 一直是 false → 上面 {@link #func_73869_a} 里那个焦点判断永远不成立，
+     * 打字全被吞掉，而且不报任何错。
+     */
+    @Override
+    public void func_73864_a(int mouseX, int mouseY, int button) {
+        for (net.minecraft.client.gui.GuiTextField f : textFields) {
+            f.func_146192_a(mouseX, mouseY, button);
+        }
+        dbg("click x=" + mouseX + " y=" + mouseY + " button=" + button
+                + " fields=" + textFields.size() + " focused=" + focusedCount());
+        super.func_73864_a(mouseX, mouseY, button);
+    }
+
+    private int focusedCount() {
+        int n = 0;
+        for (net.minecraft.client.gui.GuiTextField f : textFields) if (f.func_146206_l()) n++;
+        return n;
+    }
+
+    /** 输入链路排查：设 {@code MCVER_DEBUG_INPUT=1} 时把点击/按键写进 mcver-debug.txt。 */
+    private static void dbg(String msg) {
+        if (System.getenv("MCVER_DEBUG_INPUT") == null) return;
+        try {
+            dev.mcver.core.Jdk.writeAppend(java.nio.file.Paths.get("mcver-debug.txt").toAbsolutePath(),
+                    "input: " + msg);
+        } catch (Throwable ignored) { }
+    }
+
     @Override
     public void func_73869_a(char typedChar, int keyCode) {
+        dbg("key c=" + (int) typedChar + " k=" + keyCode + " focused=" + focusedCount());
         // 输入框优先吃键盘（它自己判断有没有焦点）
         for (net.minecraft.client.gui.GuiTextField f : textFields) {
             if (f.func_146206_l() && f.func_146201_a(typedChar, keyCode)) return;

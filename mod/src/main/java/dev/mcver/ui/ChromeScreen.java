@@ -67,7 +67,7 @@ public abstract class ChromeScreen extends Screen {
      * 加一个控件。游戏里的方法名跨版本改过：
      * 1.17+ 是 {@code addDrawableChild}，1.16.5 是 {@code addChild}。
      */
-    protected void addWidget(Object w) {
+    protected void addControl(Object w) {
         addDrawableChild((ClickableWidget) w);
     }
 

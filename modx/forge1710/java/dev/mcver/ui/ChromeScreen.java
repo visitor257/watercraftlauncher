@@ -77,7 +77,7 @@ public abstract class ChromeScreen extends Screen {
     }
 
     /** 加一个控件。按钮进 buttonList，输入框进自己的表。 */
-    protected void addWidget(Object w) {
+    protected void addControl(Object w) {
         if (w instanceof net.minecraft.client.gui.GuiButton) {
             this.field_146292_n.add(w);
         } else if (w instanceof net.minecraft.client.gui.GuiTextField) {

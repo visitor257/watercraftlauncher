@@ -58,7 +58,7 @@ public abstract class ChromeScreen extends Screen {
     }
 
     /** 加一个控件。1.16.5 的入口是 {@code addButton}（会同时进 children 和 buttons）。 */
-    protected void addWidget(Object w) {
+    protected void addControl(Object w) {
         if (w instanceof AbstractWidget) {
             addButton((AbstractWidget) w);
         }
@@ -66,7 +66,7 @@ public abstract class ChromeScreen extends Screen {
 
     /** 泛型版：返回原对象，方便链式写法。 */
     protected <T extends AbstractWidget> T add(T w) {
-        addWidget(w);
+        addControl(w);
         return w;
     }
 
