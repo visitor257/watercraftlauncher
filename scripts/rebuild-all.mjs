@@ -45,6 +45,7 @@ const forgeModern = [
 
 // ---- Forge 1.7.10 ~ 1.12.2（SRG 编，垫片 + overlay）
 const forgeLegacy = [
+  ['forge-1.7.2', ['scripts/build-172forge.mjs']],   // 要装到实例里才编得动：先 installForge
   ['forge-1.7.10', ['scripts/build-1710forge.mjs']],
   ['forge-1.8.9', ['scripts/build-srg-legacy.mjs', '--mc', '1.8.9', '--forge', '11.15.1.2318',
     '--instance', '1.8.9-forge1.8.9-11.15.1.2318-1.8.9', '--shim', 'shim189', '--overlay', 'forge102,forge189']],

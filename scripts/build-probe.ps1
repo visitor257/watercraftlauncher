@@ -79,3 +79,16 @@ if ($LASTEXITCODE -ne 0) {
     exit 1
 }
 Write-Host "OK -> $out" -ForegroundColor Green
+
+# 1.7.2 启动补丁的助手类：平时它在 mod jar 里当资源（mcver/forge172/McverSortFix.class），
+# 探针直接跑 core 的 .class，没有 jar 也就没有资源 → 这里给 out 目录也铺一份。
+$lwStage = Join-Path $env:TEMP ("mcver-lwfix-" + [guid]::NewGuid().ToString('N'))
+& node (Join-Path $PSScriptRoot 'lwfix172.mjs') '--emit-helper' $lwStage 2>$null
+if ($LASTEXITCODE -eq 0) {
+    $dst = Join-Path $out 'mcver\forge172'
+    New-Item -ItemType Directory -Force -Path $dst | Out-Null
+    Copy-Item (Join-Path $lwStage 'cpw\mods\fml\relauncher\McverSortFix.class') $dst -Force
+} else {
+    Write-Host '警告：没生成 McverSortFix.class，1.7.2 启动补丁会被跳过' -ForegroundColor Yellow
+}
+Remove-Item $lwStage -Recurse -Force -ErrorAction SilentlyContinue

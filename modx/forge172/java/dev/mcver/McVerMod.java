@@ -22,7 +22,7 @@ import net.minecraft.item.Item;
         modid = McVerMod.MOD_ID,
         name = "Water Craft Launcher",
         version = "1.0.0",
-        acceptedMinecraftVersions = "[1.7.10]"
+        acceptedMinecraftVersions = "[1.7.2]"
 )
 public class McVerMod {
 

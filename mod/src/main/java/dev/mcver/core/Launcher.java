@@ -198,7 +198,7 @@ public final class Launcher {
     static void deleteTree(Path root) throws IOException {
         if (!Files.exists(root)) return;
         try (java.util.stream.Stream<java.nio.file.Path> s = Files.walk(root)) {
-            for (Path p : s.sorted(java.util.Comparator.reverseOrder()).collect(java.util.stream.Collectors.toList())) {
+            for (Path p : s.sorted(java.util.Collections.reverseOrder()).collect(java.util.stream.Collectors.toList())) {
                 Files.deleteIfExists(p);
             }
         }
@@ -754,6 +754,13 @@ public final class Launcher {
         public String javaNote;
     }
 
+    /** 是不是 FML 7/8 那一代（{@code cpw.mods.fml} 命名空间的 tweaker/主类）。 */
+    private static boolean usesLegacyFml(Plan p) {
+        for (String a : p.game) if (a != null && a.contains("cpw.mods.fml")) return true;
+        for (String a : p.jvm) if (a != null && a.contains("cpw.mods.fml")) return true;
+        return p.mainClass != null && p.mainClass.startsWith("cpw.mods.fml");
+    }
+
     public static Running launch(Plan p, String player, String uuid, String token, int memMb) throws IOException {
         return launch(p, player, uuid, token, memMb, null);
     }
@@ -784,6 +791,14 @@ public final class Launcher {
         if (!hasXmx && memMb > 0) cmd.add("-Xmx" + memMb + "M");
         cmd.add("-Dminecraft.launcher.brand=mcver");
         cmd.add("-Dminecraft.launcher.version=1.0");
+        // 老 FML（1.7.x / 1.8~1.12）会查客户端 jar 的签名：它看的是被 LaunchClassLoader
+        // 重新定义过的 ClientBrandRetriever，签名字节就丢了（日志：there were 0 certificates），
+        // 于是直接拒启动（CRITICAL TAMPERING WITH MINECRAFT）。
+        // 官方启动器/Prism 也是同样处理：老 FML 一律加这两个开关。
+        if (usesLegacyFml(p)) {
+            cmd.add("-Dfml.ignoreInvalidMinecraftCertificates=true");
+            cmd.add("-Dfml.ignorePatchDiscrepancies=true");
+        }
         for (String a : p.jvm) {
             cmd.add(a
                     .replace("${player}", player)

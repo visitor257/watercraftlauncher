@@ -754,6 +754,10 @@ public final class LoaderInstaller {
             }
             log.accept("已解出 " + filePath);
 
+            // 1.5) Forge 1.7.2 的 FML 7.2 在 Java 8 上起不来（tweaker 排序会崩 launchwrapper
+            // 的迭代器，详见 Forge172Fix 的类注释）。不是 1.7.2 的话这个方法什么都不做。
+            Forge172Fix.patch(dst, log);
+
             // 2) versionInfo → versions/<target>/<target>.json
             //
             // 1.7.2 的 versionInfo **没有 inheritsFrom**（1.7.10 / 1.10.2 的都有），也没有
@@ -770,6 +774,14 @@ public final class LoaderInstaller {
                     log.accept("  versionInfo 没写 inheritsFrom，补上 " + mcOfProfile);
                 }
             }
+            // 2.5) 把 asm-all 4.x 抬到 5.0.3
+            //
+            // 1.7.2 的 profile 声明 asm-all:4.1，它**读不了 Java 8 字节码**（major 52），
+            // FML 扫 mod jar 时直接 "Unable to read a class file correctly"，
+            // 然后「该 mod 不想在 1.7.2 运行」。1.7.10 的 profile 用的是 5.0.3（同一个 FML 家族），
+            // 说明 5.0.3 对这套 FML 是能跑的 —— 直接对齐。
+            bumpLegacyAsm(vi, log);
+
             Path verDir = gameDir.resolve("versions").resolve(target);
             Files.createDirectories(verDir);
             dev.mcver.core.Jdk.writeString(verDir.resolve(target + ".json"), Json.write(vi), StandardCharsets.UTF_8);
@@ -794,6 +806,25 @@ public final class LoaderInstaller {
             return target;
         }
     }
+    /** 把 legacy profile 里的 asm-all 4.x 换成 5.0.3（原因见调用点注释）。 */
+    @SuppressWarnings("unchecked")
+    static void bumpLegacyAsm(Map<String, Object> vi, Consumer<String> log) {
+        Object libsObj = vi.get("libraries");
+        if (!(libsObj instanceof List)) return;
+        for (Object o : (List<Object>) libsObj) {
+            if (!(o instanceof Map)) continue;
+            Map<String, Object> lib = (Map<String, Object>) o;
+            String name = Json.str(lib, "name", null);
+            if (name == null) continue;
+            if (name.startsWith("org.ow2.asm:asm-all:4.")) {
+                lib.put("name", "org.ow2.asm:asm-all:5.0.3");
+                lib.remove("downloads");
+                lib.remove("checksums");
+                log.accept("  asm " + name + " -> org.ow2.asm:asm-all:5.0.3（4.x 读不了 Java 8 字节码）");
+            }
+        }
+    }
+
     /**
      * 装完之后去 versions/ 里找刚生成的版本目录（名字里带任一 hint，多个命中取最新的）。
      * Forge/NeoForge 不同版本命名不一致，硬拼字符串会踩坑。
@@ -813,7 +844,11 @@ public final class LoaderInstaller {
                         }
                         return false;
                     })
-                    .max(java.util.Comparator.comparingLong(d -> d.toFile().lastModified()))
+                    .max(new java.util.Comparator<java.nio.file.Path>() {   // 不能写 Comparator.comparingLong(lambda):
+                        public int compare(java.nio.file.Path x, java.nio.file.Path y) {  // 接口静态方法,
+                            return Long.compare(x.toFile().lastModified(), y.toFile().lastModified());
+                        }                                                        // FML 7.2 的 ASM 4 读不了
+                    })
                     .map(d -> d.getFileName().toString())
                     .orElse(null);
         } catch (IOException e) {

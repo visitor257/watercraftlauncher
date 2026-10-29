@@ -9,7 +9,7 @@
 //
 // 用法： node scripts/build-172forge.mjs
 import { execFileSync } from 'node:child_process';
-import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, unlinkSync, writeFileSync } from 'node:fs';
+import { cpSync, copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, unlinkSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 
 const ROOT = resolve(import.meta.dirname, '..');
@@ -102,6 +102,15 @@ cpSync(join(MODX, 'forge172', 'resources'), join(W, 'classes'), { recursive: tru
 for (const junk of ['fabric.mod.json', 'assets/mcver/items']) {
   const p = join(W, 'classes', junk);
   if (existsSync(p)) rmSync(p, { recursive: true, force: true });
+}
+
+// 5.5) 1.7.2 启动补丁的助手类：以资源形式随包，安装时由 Forge172Fix 塞进 Forge 的 universal jar
+{
+  const stage = join(W, 'lwfix');
+  execFileSync(process.execPath, [join(ROOT, 'scripts', 'lwfix172.mjs'), '--emit-helper', stage], { stdio: 'inherit' });
+  mkdirSync(join(W, 'classes', 'mcver', 'forge172'), { recursive: true });
+  copyFileSync(join(stage, 'cpw/mods/fml/relauncher/McverSortFix.class'),
+               join(W, 'classes', 'mcver', 'forge172', 'McverSortFix.class'));
 }
 
 const outDir = join(MODX, 'out', 'forge-7.2');

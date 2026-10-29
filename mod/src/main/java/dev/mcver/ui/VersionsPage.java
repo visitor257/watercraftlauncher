@@ -315,7 +315,7 @@ public class VersionsPage extends Page {
     private static void deleteTree(Path root) throws java.io.IOException {
         if (!Files.exists(root)) return;
         try (java.util.stream.Stream<java.nio.file.Path> s = Files.walk(root)) {
-            for (Path p : s.sorted(java.util.Comparator.reverseOrder()).collect(java.util.stream.Collectors.toList())) {
+            for (Path p : s.sorted(java.util.Collections.reverseOrder()).collect(java.util.stream.Collectors.toList())) {
                 Files.deleteIfExists(p);
             }
         }
@@ -328,7 +328,11 @@ public class VersionsPage extends Page {
         try (java.util.stream.Stream<java.nio.file.Path> s = Files.list(logs)) {
             newest = s.filter(Files::isRegularFile)
                     .filter(p -> p.getFileName().toString().startsWith("mcver-launch-"))
-                    .max(java.util.Comparator.comparingLong(p -> p.toFile().lastModified()))
+                    .max(new java.util.Comparator<Path>() {          // 不能写 Comparator.comparingLong(lambda):
+                        public int compare(Path x, Path y) {           // 那是 Java 8 的接口静态方法,
+                            return Long.compare(x.toFile().lastModified(), y.toFile().lastModified());
+                        }                                             // FML 7.2 的 ASM 4 读不了
+                    })
                     .orElse(null);
         } catch (Exception ignored) { }
         if (newest == null) {

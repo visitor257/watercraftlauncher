@@ -2132,3 +2132,94 @@ class 文件在 JRE 7 上直接 `UnsupportedClassVersionError`。要支持 Java 
 
 保留的东西：`scripts/build-172forge.mjs`、`modx/shim172`、`modx/forge172`、`mk-srg-1710` 的 `--mc` 参数。
 哪天 FML 7.2 被谁修了（或者我们真去补 launchwrapper），一条命令就能出 jar；**现在不 publish 进 dist**。
+
+## 35. 2026-10-29（第十七轮）：Forge 1.7.2 —— 能做，做完了
+
+上一节（§34）的结论是「1.7.2 需要 Java 7，做不了」。用户问了一句「能不能解决」，答案是**能**，
+一共四个卡点，全部能绕过去，代价是安装时给 Forge 的 universal jar 打一个补丁。
+
+### 35.1 卡点一：FML 7.2 的 tweaker 排序在 Java 8 上必崩（根因见 §34.4）
+
+补丁思路：**只改一个方法**。`CoreModManager.sortTweakList()` 里那句
+`Collections.sort(list, comparator)` 换成 `McverSortFix.sort(list, comparator)`，
+后者就是 FML 7.10 的写法（`toArray` → `Arrays.sort` → 逐个 `set`），不动 `modCount`。
+
+实现上刻意选了「转发一个静态方法」而不是「把循环内联进去」：
+- 内联要在 `sortTweakList` 里加分支，那就得重算 `StackMapTable`（class 51 强制要求帧）；
+- 转发只往常量池**追加 6 个条目**、改一个 2 字节操作数，**栈上类型不变**
+  （`[List, Comparator]` 对 `(List, Object)` 校验器直接过），不用碰帧。
+
+`core/Forge172Fix.java` 就是这么干的：解析常量池 → 找 `Collections.sort(List,Comparator)V`
+的 Methodref → 在 `sortTweakList` 的 Code 里找那条 `invokestatic` → 追加 6 个池条目 → 改操作数 →
+重打包 universal jar（顺手塞进 `cpw/mods/fml/relauncher/McverSortFix.class` 和 `mcver-lwfix172.marker`）。
+幂等，二次安装看 marker 直接跳过。
+
+**为什么不改 launchwrapper 的 `Launch`**：那个 `launch()` 是「while + 两层迭代器 + 移除」的状态机
+（`TweakClasses` 会在 `acceptOptions` 里被重新填充、外层再跳回去），自己重写一版风险比改一行排序大得多。
+
+### 35.2 卡点二：asm-all 4.1 读不了 Java 8 字节码
+
+1.7.2 的 profile 声明 `org.ow2.asm:asm-all:4.1`，FML 扫 mod jar 时直接
+`Unable to read a class file correctly` → 「该 mod 不想在 1.7.2 运行」。
+**1.7.10 的 profile 用的是 5.0.3**（同一个 FML 家族），所以直接对齐：
+`LoaderInstaller.bumpLegacyAsm()` 把 legacy profile 里的 `asm-all:4.*` 换成 `5.0.3`，并去掉 `downloads`。
+
+### 35.3 卡点三：FML 7.2 是按 ASM 4 的 API 写的
+
+换 5.0.3 之后还报 `INVOKESPECIAL/STATIC on interfaces require ASM 5` —— 不是 jar 版本问题，
+是 FML 自己的 `ClassVisitor` 用 `Opcodes.ASM4` 构造的，碰到「在接口上调静态方法」就抛。
+我们源码里正好有 4 处：
+
+| 文件 | 调用 |
+| --- | --- |
+| `core/Launcher.java`、`ui/VersionsPage.java` | `Comparator.reverseOrder()` → `Collections.reverseOrder()` |
+| `core/LoaderInstaller.java`、`ui/VersionsPage.java` | `Comparator.comparingLong(lambda)` → 匿名 `Comparator<Path>` + `Long.compare` |
+
+改完用 ASM 5.0.3 写了个扫描器（`modx/lwfix/IfaceCallScan.java`）复查：**整包 0 处**。
+以后再往主源码里写接口静态方法（`Comparator.comparingXxx`、`List.of` 之类）这个扫描器能提前发现。
+
+### 35.4 卡点四：1.7.x 的 FML 会查客户端 jar 签名
+
+```
+ClientBrandRetriever ... there were 0 certificates for it
+FML will not launch minecraft
+```
+原因：FML 看的是被 `LaunchClassLoader` 重新定义过的类，签名字节已经丢了。
+官方启动器/Prism 的老 FML 一律加两个开关，我们照做：`Launcher.usesLegacyFml(p)` 命中
+`cpw.mods.fml` 就加 `-Dfml.ignoreInvalidMinecraftCertificates=true`
+和 `-Dfml.ignorePatchDiscrepancies=true`。
+
+### 35.5 还有一处小的：`acceptedMinecraftVersions`
+
+`modx/forge172/.../McVerMod.java` 写着 `[1.7.10]`（从 overlay 继承来的），改成 `[1.7.2]`。
+
+### 35.6 结果
+
+改完之后 `verify-gui-one.mjs 1.7.2-Forge10.12.2.1161-mc172`：
+
+```
+ok: true, center: C6C6C6, hits: 14952, children: 17, size: 870x519
+```
+
+**而且这次是「安装器自己搞定的」**：干净实例 → `ProbeInstall`（探针用的是同一份 core 源码）
+→ 日志里 `1.7.2 启动补丁已打` + `asm org.ow2.asm:asm-all:4.1 -> 5.0.3` → 直接 `verify-gui-one` PASS。
+没有手工打补丁、没有临时环境变量。
+
+### 35.7 工具链
+
+- `scripts/lwfix172.mjs`：Node 版补丁器（`<class> <stageDir>` 打补丁；`--emit-helper <dir>` 只编助手类）。
+  构建时用它把 `McverSortFix.class` 铺进 mod jar 的 `mcver/forge172/`。
+- `scripts/lwfix172.ps1`：给「已装好的实例」手动打补丁（调试用，正式流程走 Java）。
+- `scripts/build-probe.ps1` 结尾会把助手类也铺进 `tools/probe/out`，否则探针跑安装时会「没有资源，跳过补丁」。
+- `rebuild-all.mjs` 的 `forgeLegacy` 加了 `forge-1.7.2`（现在 **41 步**）。
+
+### 35.8 教训
+
+1. **「老版本不支持 Java 8」不等于「做不了」** —— 先把「谁崩、崩在哪一行、为什么」查清（这里是
+   `ArrayList.sort` 无条件的 `modCount++`），再判断补丁面有多大。这次补丁面只有 6 个常量池条目。
+2. **字节码补丁优先选「不改控制流」的形态**：转发一个静态方法就不用重算 StackMapTable，
+   风险从「可能写错帧」降到「可能算错池下标」。
+3. **同一个 loader 家族的新版本（1.7.10）就是最好的「官方修法参考」**：
+   asm 该用哪个版本、排序该怎么写，都是从 1.7.10 的字节码里抄来的。
+4. 常量池里 `Methodref` 存的是 **NameAndType 下标**，不是名字/描述符 —— 第一版就是这么写错、
+   静默返回 null（"结构不匹配"），第二版才修对。**patch 失败要能说出失败在哪一步**，不然只能盲猜。
