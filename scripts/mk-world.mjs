@@ -41,7 +41,7 @@ const java = arg('java', 'D:\\Program Files\\Java\\jdk-21.0.7\\bin\\java.exe');
 const dv = arg('dv', '');      // 目标 DataVersion（把服务端世界压到更旧的客户端能认的版本）
 const dvVer = arg('ver', '');  // 配合 --dv 的版本名
 const work = path.join(gameDir, 'rcserver', 'gen-' + mc);
-const serverJar = arg('server-jar', path.join(work, 'server.jar'));
+const serverJar = path.resolve(arg('server-jar', path.join(work, 'server.jar')));
 
 if (!saveInto.length) {
   console.error('用法: node scripts/mk-world.mjs --mc 1.20.1 --name flat120 --save-into <实例>[,<实例>...]');
@@ -50,9 +50,22 @@ if (!saveInto.length) {
 
 // ---------------------------------------------------------------- 1. server.jar
 async function fetchServerJar() {
-  if (fs.existsSync(serverJar) && fs.statSync(serverJar).size > 1e6) return;
+  if (fs.existsSync(serverJar) && fs.statSync(serverJar).size > 1e6) {
+    // 大小对不上就当坏的：断点下载断在半路时，光看「>1MB」会被骗过去
+    try {
+      const meta = JSON.parse(await text('https://launchermeta.mojang.com/mc/game/version_manifest_v2.json'));
+      const v = meta.versions.find((x) => x.id === mc);
+      const ver = JSON.parse(await text(v.url));
+      const want = ver.downloads?.server?.size;
+      const got = fs.statSync(serverJar).size;
+      if (!want || got === want) return;
+      console.log(`[world] ${serverJar} 大小不对（${got} != ${want}），重下`);
+    } catch {
+      return; // 没网就别折腾了，先按现有的试
+    }
+  }
   console.log(`[world] 下载 ${mc} server.jar ...`);
-  const meta = JSON.parse(await text(`https://launchermeta.mojang.com/mc/game/version_manifest_v2.json`));
+  const meta = JSON.parse(await text('https://launchermeta.mojang.com/mc/game/version_manifest_v2.json'));
   const v = meta.versions.find((x) => x.id === mc);
   if (!v) throw new Error(`版本清单里没有 ${mc}`);
   const ver = JSON.parse(await text(v.url));
@@ -60,6 +73,9 @@ async function fetchServerJar() {
   if (!url) throw new Error(`${mc} 没有 server 下载（远古版/愚人节版没有服务端）`);
   fs.mkdirSync(path.dirname(serverJar), { recursive: true });
   const buf = await bufFetch(url);
+  if (ver.downloads.server.size && buf.length !== ver.downloads.server.size) {
+    throw new Error(`下载不完整：${buf.length} != ${ver.downloads.server.size}`);
+  }
   fs.writeFileSync(serverJar, buf);
   console.log(`[world] server.jar ${buf.length} 字节`);
 }

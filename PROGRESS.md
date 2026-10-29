@@ -1799,6 +1799,10 @@ node scripts/mk-world.mjs --mc 1.20.1 --name flat120 --save-into fabric-loader-0
   带类型标签（byte/int/long/float/double/string/list/compound/数组），round-trip 不会把类型改掉。
 - `scripts/mk-world.mjs`：起**对应版本服务端**生超平坦世界 → 拷进实例 → 改 `level.dat`
   （创造 + 允许作弊 + 可选 `--dv` 压 DataVersion）。
+  实测：1.20.1 服务端 2.3 秒生成完（`Done (2.345s)!`），`GameType 0 -> 1`、`allowCommands 0 -> 1`，
+  拿这个干净存档跑右键 **PASS**。
+  坑：`spawn` 的 `cwd` 是工作目录，`--server-jar` 传相对路径会 `Unable to access jarfile` —— 现在一律 `path.resolve`。
+  下载校验也比 `>1MB` 严了：跟 manifest 里的 `size` 对齐（断点下载断在半路时旧判据会被骗）。
 - `scripts/clone-world.mjs`：拿现成存档克隆到别的实例，顺手改 `DataVersion` / `Version.Name` / 游戏模式。
   实测 1.21.4 的存档改 `DataVersion=3463` 塞给 1.20.0，**能正常进世界**
   （刷一堆 `Skipping BlockEntity with id minecraft:trial_spawner`，无所谓）。
@@ -1807,7 +1811,7 @@ node scripts/mk-world.mjs --mc 1.20.1 --name flat120 --save-into fabric-loader-0
 
 | 目标 | 加载器路径 | 结果 |
 | --- | --- | --- |
-| Fabric 1.20.0（`fabric-loader-0.20.1-1.20`） | `UseItemCallback` 事件 | **PASS**（驱动级右键，抓图 870x519） |
+| Fabric 1.20.0（`fabric-loader-0.20.1-1.20`） | `UseItemCallback` 事件 | **PASS**（驱动级右键，抓图 870x519；克隆存档一份、服务端生成一份都跑过） |
 | Forge 1.21.4（换驱动级输入后复跑） | mojmap 轮询 + 边沿检测 | **PASS** |
 
 Fabric ≤1.20 的代码只有一处判定，且是事件驱动（不依赖按键状态被谁消费）：
