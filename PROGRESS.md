@@ -1827,7 +1827,16 @@ UseItemCallback.EVENT.register((player, world, hand) -> {
 });
 ```
 
-### 31.4 还没验的：老世代（Forge 1.7.10~1.12.2 / Legacy Fabric）
+### 31.4 抓图仍然只能算「尽力而为」
+
+- `PrintWindow(hwnd, dc, 2)` 在 OpenGL 窗口上**经常返回全黑**（1.21.4-forge 那次就是 5.7KB 全黑图，
+  但「文件存在且 >1KB」的断言照样绿）。
+- 现在先 `Graphics.CopyFromScreen`（窗口刚被叫到前台，这条路通常能拿到真像素），
+  再用 24×14 个采样点判断「是不是全黑」，全黑才退回 `PrintWindow`；两种都黑就打印 WARN，
+  **不再把图当证据用**。
+- 结论：**判据就是日志里那行 `mcver: 右键打开启动器`**，图只用于人眼看。
+
+### 31.5 还没验的：老世代（Forge 1.7.10~1.12.2 / Legacy Fabric）
 
 那些版本**没有 `--quickPlaySingleplayer`**（1.20 才加的），探针进不了世界。
 要验得驱动 GUI：标题界面 → 单人 → 存档列表 → 进入（窗口尺寸要固定、按钮坐标要算）。
