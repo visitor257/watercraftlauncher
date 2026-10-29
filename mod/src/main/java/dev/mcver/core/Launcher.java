@@ -879,7 +879,17 @@ public final class Launcher {
         }
     }
 
-    /** 参数文件，绕开 Windows 32k 命令行上限。 */
+    /**
+     * 参数文件，绕开 Windows 32k 命令行上限。
+     *
+     * <p><b>编码不能写死 UTF-8</b>：JLI 解析 {@code @argfile} 用的是<b>平台本地编码</b>
+     * （{@code sun.jnu.encoding}，中文 Windows 上是 GBK），不是 {@code file.encoding}。
+     * 之前写 UTF-8 → 任何非 ASCII 参数（中文存档名、中文用户名、中文游戏目录）都被按 GBK
+     * 解码成乱码（{@code 新的世界} → {@code 鏂扮殑涓栫晫}）。表现极其隐蔽：游戏正常起来，
+     * 只是 {@code --quickPlaySingleplayer} 找不到存档，一路停在标题界面。
+     *
+     * <p>所以按 {@code sun.jnu.encoding} 写；拿不到或编码不了就退回默认编码。
+     */
     private static void writeArgFile(Path file, List<String> args) throws IOException {
         StringBuilder sb = new StringBuilder();
         for (String a : args) {
@@ -891,7 +901,28 @@ public final class Launcher {
             }
             sb.append('"').append('\n');
         }
-        dev.mcver.core.Jdk.writeString(file, sb.toString(), StandardCharsets.UTF_8);
+        String body = sb.toString();
+        dev.mcver.core.Jdk.writeString(file, body, argFileCharset(body));
+    }
+
+    /** JLI 读 {@code @argfile} 用的编码：{@code sun.jnu.encoding} → 默认编码。 */
+    private static java.nio.charset.Charset argFileCharset(String body) {
+        java.nio.charset.Charset cs = null;
+        try {
+            String n = System.getProperty("sun.jnu.encoding");
+            if (n != null && !n.trim().isEmpty()) cs = java.nio.charset.Charset.forName(n.trim());
+        } catch (Throwable ignored) { }
+        if (cs == null) {
+            try {
+                cs = java.nio.charset.Charset.defaultCharset();
+            } catch (Throwable ignored) { }
+        }
+        if (cs == null) return StandardCharsets.UTF_8;
+        // 平台编码装不下的字符（罕见的 emoji / 生僻字）宁可退回 UTF-8，别写成 '?' 静默丢信息
+        try {
+            if (body.length() > 0 && !cs.newEncoder().canEncode(body)) return StandardCharsets.UTF_8;
+        } catch (Throwable ignored) { }
+        return cs;
     }
 
     private static boolean hasNativesInfo(Map<String, Object> lib) {
