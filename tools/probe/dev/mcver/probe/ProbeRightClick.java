@@ -20,7 +20,7 @@ import java.util.List;
  * 用户一右键却发现没反应 —— 判据覆盖错了路径。
  *
  * <p>本探针走的是用户真实路径：{@code --quickPlaySingleplayer} 进世界 → 用聊天命令拿物品 →
- * 给窗口 PostMessage 一个真右键 → 只有 {@code McVerClient} 的右键分支真的命中，
+ * 发一个真右键（驱动级 {@code mouse_event}）→ 只有 {@code McVerClient} 的右键分支真的命中，
  * 日志里才会出现「mcver: 右键打开启动器」。
  *
  * <p>用法：
@@ -123,33 +123,74 @@ public final class ProbeRightClick {
     // ---------------- Windows 调用 ----------------
 
     /**
-     * 一条 PowerShell 里发完整序列：
-     * T(WORD) → 逐字符 WM_CHAR → ENTER → 等物品进背包 → WM_RBUTTONDOWN/UP。
+     * 一条 PowerShell 里发完整序列：T(WORD) → 逐字符 → ENTER → 等物品进背包 → 右键。
      *
-     * <p>GLFW 的 win32 后端在 {@code WndProc} 里处理 {@code WM_KEYDOWN}/{@code WM_CHAR} /
-     * {@code WM_*BUTTON*}，所以 {@code PostMessage} 能真的送到 GLFW 的回调里，
-     * 不需要窗口在前台、也不需要驱动级 SendInput。
+     * <p><b>为什么用驱动级 {@code keybd_event}/{@code mouse_event} 而不是 {@code PostMessage}：</b>
+     * 1.21.x 的 GLFW 会处理投递到窗口的 {@code WM_KEYDOWN}，但 1.20.0 上实测<b>完全不生效</b>
+     * （连 Esc 都不会暂停）—— 这就是旧写法在旧世代会假 FAIL 的源头。
+     * 驱动级事件才是「用户真按了」的等价物；代价是窗口必须真的在前台，
+     * 所以先 {@code ShowWindow(SW_RESTORE)} + {@code SetForegroundWindow}，并核对
+     * {@code GetForegroundWindow()} 到底是不是它。
+     *
+     * <p>字符靠 {@code VkKeyScanW} 反查虚拟键 + 是否需要 Shift（`/` `@` `_` 这些都会被正确处理）。
+     * 落一个临时 {@code .ps1} 用 {@code -File} 跑：引号层次少，不会撞 {@code -Command} 的转义地狱。
      */
     private static void sendInput(long hwnd, String text) {
-        StringBuilder sb = new StringBuilder();
-        sb.append("Add-Type -MemberDefinition '");
-        sb.append("[DllImport(\\\"user32.dll\\\")]public static extern bool PostMessage(IntPtr h,uint m,IntPtr w,IntPtr l);");
-        sb.append("' -Name P4 -Namespace N4 -PassThru | Out-Null; ");
-        sb.append("$h=[IntPtr]").append(hwnd).append("; ");
-        sb.append("function K($vk){ [void][N4.P4]::PostMessage($h,0x0100,[IntPtr]$vk,[IntPtr](1+(0x1C -shl 16))); Start-Sleep -Milliseconds 60; ");
-        sb.append("[void][N4.P4]::PostMessage($h,0x0101,[IntPtr]$vk,[IntPtr](1+(0x1C -shl 16)+(1 -shl 30)+(1 -shl 31))) } ");
-        sb.append("K 0x54; Start-Sleep -Milliseconds 1200; ");
-        for (int i = 0; i < text.length(); i++) {
-            sb.append("[void][N4.P4]::PostMessage($h,0x0102,[IntPtr]").append((int) text.charAt(i)).append(",[IntPtr]1); Start-Sleep -Milliseconds 30; ");
-        }
-        sb.append("Start-Sleep -Milliseconds 300; K 0x0D; Start-Sleep -Milliseconds 2000; ");
-        // 真右键：lParam 里塞个屏幕内的坐标（游戏不读它，但要像真的）
-        sb.append("$lp=(0x200 -shl 16) -bor 0x200; ");
-        sb.append("[void][N4.P4]::PostMessage($h,0x0204,[IntPtr]2,[IntPtr]$lp); Start-Sleep -Milliseconds 120; ");
-        sb.append("[void][N4.P4]::PostMessage($h,0x0205,[IntPtr]0,[IntPtr]$lp); ");
+        StringBuilder sh = new StringBuilder();
+        sh.append("param([int]$Hwnd, [string]$Text)\n");
+        sh.append("Add-Type -TypeDefinition @\"\n");
+        sh.append("using System;\nusing System.Runtime.InteropServices;\n");
+        sh.append("public class K5 {\n");
+        sh.append("    [DllImport(\"user32.dll\")] public static extern void keybd_event(byte vk, byte scan, uint flags, UIntPtr extra);\n");
+        sh.append("    [DllImport(\"user32.dll\")] public static extern void mouse_event(uint flags, int dx, int dy, uint data, UIntPtr extra);\n");
+        sh.append("    [DllImport(\"user32.dll\")] public static extern bool SetForegroundWindow(IntPtr h);\n");
+        sh.append("    [DllImport(\"user32.dll\")] public static extern bool ShowWindow(IntPtr h, int c);\n");
+        sh.append("    [DllImport(\"user32.dll\")] public static extern IntPtr GetForegroundWindow();\n");
+        sh.append("    [DllImport(\"user32.dll\")] public static extern short VkKeyScanW(char c);\n");
+        sh.append("}\n");
+        sh.append("\"@\n");
+        sh.append("$h = [IntPtr]$Hwnd\n");
+        sh.append("[void][K5]::ShowWindow($h, 9)\n");
+        sh.append("[void][K5]::SetForegroundWindow($h)\n");
+        sh.append("Start-Sleep -Milliseconds 700\n");
+        sh.append("$fg = [K5]::GetForegroundWindow()\n");
+        sh.append("Write-Output (\"foreground=$fg target=$h\")\n");
+        sh.append("if ($fg -ne $h) { Write-Output 'WARN 窗口没拿到前台，输入可能被系统丢掉' }\n");
+        sh.append("function Tap([int]$vk) {\n");
+        sh.append("  [K5]::keybd_event([byte]$vk, 0, 0, [UIntPtr]::Zero)\n");
+        sh.append("  Start-Sleep -Milliseconds 45\n");
+        sh.append("  [K5]::keybd_event([byte]$vk, 0, 2, [UIntPtr]::Zero)\n");
+        sh.append("  Start-Sleep -Milliseconds 45\n");
+        sh.append("}\n");
+        sh.append("function TypeChar([char]$c) {\n");
+        sh.append("  $v = [K5]::VkKeyScanW($c)\n");
+        sh.append("  $vk = $v -band 0xFF\n");
+        sh.append("  if ($vk -eq 0xFF -or $vk -eq -1) { Write-Output (\"skip char: $c\"); return }\n");
+        sh.append("  $shift = (($v -shr 8) -band 1) -eq 1\n");
+        sh.append("  if ($shift) { [K5]::keybd_event(0x10, 0, 0, [UIntPtr]::Zero) }\n");
+        sh.append("  Tap $vk\n");
+        sh.append("  if ($shift) { [K5]::keybd_event(0x10, 0, 2, [UIntPtr]::Zero) }\n");
+        sh.append("}\n");
+        sh.append("Tap 0x54                       # T 开聊天\n");
+        sh.append("Start-Sleep -Milliseconds 1200\n");
+        sh.append("foreach ($c in $Text.ToCharArray()) { TypeChar $c }\n");
+        sh.append("Start-Sleep -Milliseconds 400\n");
+        sh.append("Tap 0x0D                       # Enter 执行 /give\n");
+        sh.append("Start-Sleep -Milliseconds 2000\n");
+        sh.append("# 右键：MOUSEEVENTF_RIGHTDOWN(0x0008) / RIGHTUP(0x0010)\n");
+        sh.append("[K5]::mouse_event(0x0008, 0, 0, 0, [UIntPtr]::Zero)\n");
+        sh.append("Start-Sleep -Milliseconds 120\n");
+        sh.append("[K5]::mouse_event(0x0010, 0, 0, 0, [UIntPtr]::Zero)\n");
+        sh.append("Write-Output 'input sent'\n");
 
+        Path script = null;
         try {
-            ProcessBuilder pb = new ProcessBuilder("powershell", "-NoProfile", "-Command", sb.toString());
+            script = Files.createTempFile("mcver-keys-", ".ps1");
+            // 必须带 UTF-8 BOM：Windows PowerShell 5.1 读无 BOM 的 .ps1 会按 ANSI(GBK) 解，
+            // 里面的中文提示就会把字符串引号搞崩（ParserError: TerminatorExpectedAtEndOfString）。
+            Files.write(script, ("\uFEFF" + sh).getBytes(StandardCharsets.UTF_8));
+            ProcessBuilder pb = new ProcessBuilder("powershell", "-NoProfile", "-ExecutionPolicy", "Bypass",
+                    "-File", script.toAbsolutePath().toString(), "-Hwnd", String.valueOf(hwnd), "-Text", text);
             pb.redirectErrorStream(true);
             Process pr = pb.start();
             String out = new String(pr.getInputStream().readAllBytes(), StandardCharsets.UTF_8).trim();
@@ -157,13 +198,12 @@ public final class ProbeRightClick {
             if (!out.isEmpty()) System.out.println("[probe] ps: " + out);
         } catch (Throwable t) {
             System.out.println("[probe] (发送输入失败: " + t.getMessage() + ")");
+        } finally {
+            try { if (script != null) Files.deleteIfExists(script); } catch (IOException ignored) { }
         }
     }
 
     private static long findMinecraftWindow() {
-        try {
-            Class<?> user32 = Class.forName("com.sun.jna.Native") == null ? null : null;
-        } catch (Throwable ignored) { }
         // 不用 JNA：直接用 PowerShell 侧传进来的 hwnd 更稳，但探针是独立进程，
         // 这里用 ProcessHandle + user32 的 FindWindowW 反射太重。
         // 折中：遍历当前会话里标题为 Minecraft 的 java 进程主窗口。
@@ -193,6 +233,8 @@ public final class ProbeRightClick {
      * 落一个临时 .ps1 用 {@code -File} 跑，最稳。
      */
     private static void shoot(long hwnd, Path png) throws Exception {
+        // 先删旧图：否则「文件存在且 >1KB」的断言会被上一轮留下的图骗过（已经踩过）
+        try { Files.deleteIfExists(png); } catch (IOException ignored) { }
         Path script = Files.createTempFile("mcver-shot-", ".ps1");
         String body = String.join("\n",
                 "Add-Type -AssemblyName System.Drawing",

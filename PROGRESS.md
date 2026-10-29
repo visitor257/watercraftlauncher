@@ -1683,3 +1683,149 @@ node scripts/verify-rightclick.mjs <实例> [--world 新的世界] [--timeout 19
   不许用 `MCVER_OPEN_GUI` 之类自检钩子代替。
 - 日志 grep 一律按 GBK 回退解码，别假设 UTF-8。
 - 截图成功与否要断言文件存在，不能只信打印的路径。
+
+
+## 30. 2026-10-29（第十三轮）：右键复测时揪出 `@argfile` 编码 bug
+
+上一轮改完右键判定后，`1.21.4-forge` 还要用**重编后的新 jar** 再跑一次真右键（§29 结尾留的尾巴）。
+结果第一次跑直接 **FAIL**：游戏起来了、到了 `Setting user`，但**世界一直没加载**，停在标题界面。
+
+### 30.1 根因：`@argfile` 写成了 UTF-8，JLI 却按平台编码读
+
+`Launcher.launch` 在 Java 9+ 上走 `java @argfile`（绕 Windows 32k 命令行上限），参数文件原来是：
+
+```java
+Jdk.writeString(argFile, sb.toString(), StandardCharsets.UTF_8);
+```
+
+但 **JLI 解析 `@argfile` 用的是平台本地编码**（`sun.jnu.encoding`，中文 Windows = GBK），
+不是 `file.encoding`。于是任何非 ASCII 参数都被按 GBK 解码：
+
+```
+新的世界  →  鏂扮殑涓栫晫
+```
+
+证据：`ModLauncher running: args [... --quickPlaySingleplayer, 鏂扮殑涓栫晫]`。
+游戏本身完全正常，只是存档名对不上 → quickplay 静默失败 → 停在标题界面。
+
+**这条是真正的用户级 bug**，只是被测试路径撞上了：中文存档名、中文用户名（`C:\Users\张三`）、
+中文游戏目录，全都会被搅成乱码。而且是**静默失败**，最容易漏的那种。
+
+### 30.2 修法
+
+```java
+private static Charset argFileCharset(String body) {
+    String n = System.getProperty("sun.jnu.encoding");   // 就是 JLI 读文件用的编码
+    Charset cs = (n != null && !n.trim().isEmpty()) ? Charset.forName(n.trim()) : Charset.defaultCharset();
+    // 平台编码装不下的字符（生僻字/emoji）宁可退回 UTF-8，也别写成 '?' 静默丢信息
+    return cs.newEncoder().canEncode(body) ? cs : StandardCharsets.UTF_8;
+}
+```
+
+**Java 8 路线不受影响**（`javaMajor <= 8` 走 `ProcessBuilder(List)`，参数是 UTF-16 直达进程）。
+
+### 30.3 怎么定位的（值得记的手法）
+
+1. 对比两轮启动的 `mcver-args-*.txt` —— **完全一样**，说明不是参数拼错；
+2. 看游戏日志里 ModLauncher 打印的 args —— 存档名是**乱码**，一下就锁定了编码；
+3. 换成 ASCII 存档名 `rctest` 重跑 —— **PASS**。对照组一立，结论就硬了。
+
+### 30.4 探针又踩了三个坑（都修了）
+
+| 坑 | 现象 | 修法 |
+| --- | --- | --- |
+| 截图断言用了上一轮的旧图 | `badrect` 之后还打印 `png=...`（文件是上次留下的） | `shoot()` 里先 `Files.deleteIfExists(png)` |
+| 单机「失焦即暂停」 | 窗口没焦点 → 暂停 → tick 里 `currentScreen != null` 直接 return → 右键永远看不到（Fabric 1.21.4 假 FAIL） | 发键前 `ShowWindow(SW_RESTORE)` + `SetForegroundWindow`；实例 `options.txt` 里 `pauseOnLostFocus:false` |
+| 上一轮被掐断的游戏还活着、攥着 `session.lock` | `Failed to read level ... 另一个程序已锁定文件的一部分` → 世界不加载 | `verify-rightclick.mjs` 起跑前先杀掉窗口标题是 `Minecraft*` 的 java |
+
+### 30.5 新工具：`scripts/mk-world.mjs`
+
+探针要存档，而自己造存档得点 GUI。现在：
+
+```bash
+node scripts/mk-world.mjs --mc 1.20.1 --name flat120 --save-into fabric-loader-0.20.1-1.20
+```
+
+起一次对应版本的服务端生超平坦世界 → 拷进实例 `saves/<名字>` → **改 `level.dat`**
+（`GameType=1` 创造 + `allowCommands=1` 允许作弊，否则 `/give` 没权限）。
+`level.dat` 是 gzip(NBT)，脚本里自带一个往返无损的 NBT 编解码器（不是只读）。
+
+### 30.6 复测结果（全部真右键、全部用重编后的新 jar）
+
+| 目标 | 加载器路径 | 结果 |
+| --- | --- | --- |
+| Forge 1.21.4 | mojmap 轮询 + 边沿检测 | **PASS** |
+| NeoForge 20.6.144 | 同上（独立源码副本） | **PASS** |
+| Fabric 1.21.4 | Yarn 轮询 + 边沿检测 | **PASS** |
+| Fabric ≤1.20 | `UseItemCallback` 事件 | 见 §31 |
+
+全量重建 `node scripts/rebuild-all.mjs` → **31/31 成功**，`dist/` 里 39 个 jar 全部是新的
+（`javap` 抽查过 1.21.4-forge 与 1.7.10-forge 都带 `argFileCharset`）。
+
+### 30.7 规矩补充
+
+- **参数文件/配置文件一律按「读者」的编码写**。JVM 的 `@argfile` 是 `sun.jnu.encoding`，
+  不是 `file.encoding` —— 写 UTF-8 必炸，而且炸得无声无息。
+- **静默失败要造对照组**：换 ASCII 名字能过 → 立刻定位到编码，别在「世界是不是坏了」上耗。
+
+## 31. 2026-10-29（第十三轮续）：Fabric ≤1.20 的真右键 + 探针改用驱动级输入
+
+§30 那张表里 Fabric ≤1.20 还空着（`UseItemCallback` 是**第四条实现路径**，跟轮询那套不同源）。
+补齐它花了点功夫，因为**没有 1.20 的存档**，顺便把「造存档」这件事工具化了。
+
+### 31.1 `PostMessage` 在 1.20 上根本不被认（探针第二次假 FAIL）
+
+1.20.0 实例里世界进去了、`/give` 也没执行、Esc 连暂停都没有 —— **键根本没到游戏**。
+用 `keybd_event`（驱动级）同一个窗口按 Esc，立刻 `Saving and pausing game...`。
+
+结论：`PostMessage(WM_KEYDOWN)` 在 1.21.x 上能用（GLFW 处理投递消息），**1.20.0 上不行**。
+所以探针改成驱动级输入：
+
+- `keybd_event` 打字（`VkKeyScanW` 反查虚拟键 + Shift 状态，`/` `@` `_` 都能正确打出来）
+- `mouse_event(MOUSEEVENTF_RIGHTDOWN/UP)` 右键 —— 这才是「用户真按了」的等价物
+- 前置 `ShowWindow(SW_RESTORE)` + `SetForegroundWindow`，并**核对 `GetForegroundWindow()`**
+  （打不出来要先怀疑窗口没拿到前台）
+
+顺带两个坑：
+- **生成的临时 `.ps1` 必须带 UTF-8 BOM**。PowerShell 5.1 读无 BOM 的 .ps1 按 ANSI(GBK) 解，
+  脚本里的中文注释会把引号搞崩（`TerminatorExpectedAtEndOfString`）。
+- **quickPlay 有固有竞态**：世界可能在资源重载完成前开始 tick。1.21.4 上撞到过一次
+  「美西螈咬死鱿鱼 → 掉落表要走 `LootModifierManager` → 还没加载完 → 服务器线程崩」
+  （Forge 自己的 bug，跟 mod 无关）。`verify-rightclick.mjs` 现在识别「Game crashed」自动重试一次。
+
+### 31.2 造存档工具化
+
+- `scripts/nbt.mjs`：往返无损的 NBT 编解码（`level.dat` = gzip(NBT)）。
+  带类型标签（byte/int/long/float/double/string/list/compound/数组），round-trip 不会把类型改掉。
+- `scripts/mk-world.mjs`：起**对应版本服务端**生超平坦世界 → 拷进实例 → 改 `level.dat`
+  （创造 + 允许作弊 + 可选 `--dv` 压 DataVersion）。
+- `scripts/clone-world.mjs`：拿现成存档克隆到别的实例，顺手改 `DataVersion` / `Version.Name` / 游戏模式。
+  实测 1.21.4 的存档改 `DataVersion=3463` 塞给 1.20.0，**能正常进世界**
+  （刷一堆 `Skipping BlockEntity with id minecraft:trial_spawner`，无所谓）。
+
+### 31.3 结果
+
+| 目标 | 加载器路径 | 结果 |
+| --- | --- | --- |
+| Fabric 1.20.0（`fabric-loader-0.20.1-1.20`） | `UseItemCallback` 事件 | **PASS**（驱动级右键，抓图 870x519） |
+| Forge 1.21.4（换驱动级输入后复跑） | mojmap 轮询 + 边沿检测 | **PASS** |
+
+Fabric ≤1.20 的代码只有一处判定，且是事件驱动（不依赖按键状态被谁消费）：
+
+```java
+UseItemCallback.EVENT.register((player, world, hand) -> {
+    ItemStack stack = player.getStackInHand(hand);
+    if (stack.isOf(McVerMod.DOWNLOAD_TOOL)) {
+        if (world.isClient()) { LOGGER.info("mcver: 右键打开启动器"); ... }
+        return world.isClient() ? TypedActionResult.success(stack) : TypedActionResult.pass(stack);
+    }
+    return TypedActionResult.pass(stack);
+});
+```
+
+### 31.4 还没验的：老世代（Forge 1.7.10~1.12.2 / Legacy Fabric）
+
+那些版本**没有 `--quickPlaySingleplayer`**（1.20 才加的），探针进不了世界。
+要验得驱动 GUI：标题界面 → 单人 → 存档列表 → 进入（窗口尺寸要固定、按钮坐标要算）。
+代码上它们走物品自带的 `onItemRightClick` / `method_13649` / `method_11373` / `onStartUse`，
+**不依赖按键状态**，风险与 Fabric ≤1.20 同级（已实测后者），暂按低风险评估。
