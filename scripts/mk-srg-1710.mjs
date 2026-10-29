@@ -15,7 +15,9 @@
 //
 // 产出：modx/srg/1.7.10/client-1.7.10-srg.jar + obf2srg.tiny
 //
-// 用法： node scripts/mk-srg-1710.mjs [--jar <原版 jar>] [--forge-jar <forge universal jar>]
+// 用法： node scripts/mk-srg-1710.mjs [--mc 1.7.2] [--forge 10.12.2.1161] [--instance <id>]
+//        [--jar <原版 jar>] [--forge-jar <forge universal jar>]
+// 1.7.2 复用同一套（mcp-1.7.2-srg.zip 也是 joined.srg v0）。
 import { execFileSync } from 'node:child_process';
 import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
@@ -30,11 +32,39 @@ function arg(name, dflt) {
   const i = process.argv.indexOf('--' + name);
   return i > 0 && process.argv[i + 1] ? process.argv[i + 1] : dflt;
 }
-const MC = '1.7.10';
-const INSTANCE = arg('instance', '1.7.10-Forge10.13.4.1614-1.7.10');
-const VANILLA = arg('jar', join(GAME, 'versions', INSTANCE, INSTANCE + '.jar'));
+const MC = arg('mc', '1.7.10');
 const FORGE_VER = arg('forge', '10.13.4.1614');
-const FORGE_JAR = arg('forge-jar', join(GAME, 'libraries', 'net', 'minecraftforge', 'forge', `${MC}-${FORGE_VER}-${MC}`, `forge-${MC}-${FORGE_VER}-${MC}.jar`));
+const INSTANCE = arg('instance', MC + '-Forge' + FORGE_VER + '-' + MC);
+// 实例自己的目录里不一定有 client jar：没 flatten 的加载器版本只有 json + indicates
+// inheritsFrom，客户端 jar 在父版本目录里。顺着继承链找。
+function findVanillaJar() {
+  let id = INSTANCE;
+  for (let depth = 0; depth < 5; depth++) {
+    const jar = join(GAME, 'versions', id, id + '.jar');
+    if (existsSync(jar)) return jar;
+    const jsonPath = join(GAME, 'versions', id, id + '.json');
+    if (!existsSync(jsonPath)) break;
+    const parent = JSON.parse(readFileSync(jsonPath, 'utf8')).inheritsFrom;
+    if (!parent) break;
+    id = parent;
+  }
+  return join(GAME, 'versions', INSTANCE, INSTANCE + '.jar');
+}
+const VANILLA = arg('jar', findVanillaJar());
+// Forge universal jar 的目录/文件名有两代：`<mc>-<ver>-<mc>`（1.7.10 后期）
+// 和 `<mc>-<ver>-mc<mcNoDots>`（1.7.2，branch=mc172）。两个都试。
+function findForgeJar() {
+  const dirs = [`${MC}-${FORGE_VER}-${MC}`, `${MC}-${FORGE_VER}-mc${MC.replace(/\./g, '')}`, `${MC}-${FORGE_VER}`];
+  const names = (d) => [`forge-${d}.jar`, `forge-${d}-universal.jar`];
+  for (const d of dirs) {
+    for (const n of names(d)) {
+      const f = join(GAME, 'libraries', 'net', 'minecraftforge', 'forge', d, n);
+      if (existsSync(f)) return f;
+    }
+  }
+  return join(GAME, 'libraries', 'net', 'minecraftforge', 'forge', dirs[0], `forge-${dirs[0]}.jar`);
+}
+const FORGE_JAR = arg('forge-jar', findForgeJar());
 const SRG_ZIP = join(OUT, MC, `mcp-${MC}-srg.zip`);
 
 // tiny-remapper 运行时（复用 Gradle 缓存里已有的 jar）
@@ -231,7 +261,7 @@ console.log('OUT ' + srgJar);
 // 所以跟 1.12.2 一样：自己 remap 一份，否则拿它编 mod 时类型全对不上。
 if (existsSync(FORGE_JAR)) {
   const forgeOut = join(outDir, `forge-${FORGE_VER}-srg.jar`);
-  console.log(`  remap forge-${MC}-${FORGE_VER}-${MC}.jar official -> srg`);
+  console.log(`  remap ${FORGE_JAR.split(/[\\/]/).slice(-1)[0]} official -> srg`);
   execFileSync(JAVA, ['-cp', TR_CP, 'net.fabricmc.tinyremapper.Main', FORGE_JAR, forgeOut, tinyPath, 'official', 'srg', srgJar, ...libCp(INSTANCE, MC)], {
     stdio: 'inherit',
     maxBuffer: 1 << 28,

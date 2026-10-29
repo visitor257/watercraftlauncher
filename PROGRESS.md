@@ -2047,3 +2047,88 @@ Unable to load model: 'mcver:download_tool#inventory' ... FileNotFoundException
 - `scripts/build-17x.mjs [mc...]`：逐版本 构建 → 装进实例 → 像素验收，输出汇总表。
 - `scripts/build-1132.mjs` 的 `FAMILIES` 加了 1.7 规则（1.7~1.7.8 → `compat/1.7.2`）。
 - `rebuild-all.mjs` 现在有 40 步（1.7 那 9 个也进去了）。
+
+## 34. 2026-10-29（第十六轮）：Forge 1.7.x —— 只有 1.7.2 和 1.7.10；1.7.2 是上游硬伤，做不了
+
+用户问「forge 的 1.7.x 呢」。先查事实，再动手。
+
+### 34.1 Forge 根本没出过 1.7 / 1.7.1 / 1.7.3 ~ 1.7.9
+
+`maven-metadata.json` 里 1.7 这一代只有三条：
+
+| 分支 | 构建数 | 最新 |
+| --- | --- | --- |
+| `1.7.2` | 159 | 10.12.2.1161（branch `mc172`） |
+| `1.7.10_pre4` | 10 | 10.12.2.1149-prerelease |
+| `1.7.10` | 163 | 10.13.4.1614 |
+
+也就是说 **Forge 侧的 1.7.x 一共就两个正经版本**：1.7.2 和 1.7.10。
+1.7.10 我们早就有（第 28 节），所以这轮真正要补的只有 **1.7.2**。
+
+### 34.2 顺手修掉的两个真 bug（装 1.7.2 时踩到的）
+
+1. **Forge 1.7.2 的 maven 目录名是 `-mc172` 不是 `-1.7.2`**
+   `net/minecraftforge/forge/1.7.2-10.12.2.1161-mc172/forge-1.7.2-10.12.2.1161-mc172-installer.jar`
+   （BMCLAPI 的 `branch` 字段就是 `mc172`）。我们原来只拼 `-<mc>`，直接 404。
+   `installForge` 现在有三套候选：现代 / `-<mc>` / `-mc<mcNoDots>`。
+2. **legacy install_profile 的 versionInfo 可能不带 `inheritsFrom`**
+   1.7.10 / 1.10.2 的 versionInfo 里有；**1.7.2 的没有**，也没有 `downloads` / `assets` / `assetIndex` —— 它只是层补丁。
+   以前靠「装之前没有原版 → flatten 合并」掩盖了；一旦原版已存在（flatten 不跑），就得到一个**没有客户端 jar 的版本**。
+   现在 `installViaLegacyProfile` 会看 `install.minecraft`，缺 inheritsFrom 且没有 `downloads.client` 就补上。
+
+装上之后 1.7.2 Forge 的 json / 库 / universal jar 都正常了（回归：1.7.10 Forge 仍然像素 PASS 14945）。
+
+### 34.3 1.7.2 的 SRG 管线也是通的
+
+`mk-srg-1710.mjs` 加了 `--mc` / `--forge` / `--instance`（1.7.2 的 `mcp-1.7.2-srg.zip` 同样是 `joined.srg` v0），
+Forge universal jar 的目录名用 `findForgeJar()` 认三代命名，原版 jar 沿 `inheritsFrom` 找。
+
+`scripts/build-172forge.mjs` + `modx/shim172` + `modx/forge172`：**编译一次就过**，只差一处 ——
+1.7.2 没有 `Minecraft#func_152344_a`（`addScheduledTask` 是 1.7.6 之后才有的），
+照 Fabric 1.7.2 那套改成自己排队（`bridge/Minecraft` 里 `ConcurrentLinkedQueue`，客户端 tick 抽），
+`M` 键那条路径已经在 tick 里，直接调 `openMain()`。
+产物 `modx/out/forge-7.2/watercraftlauncher-forge-1.0.0-mc1.7.2.jar`（233 KB）。
+
+### 34.4 但游戏起不来 —— 而且不是我们的问题
+
+```
+java.util.ConcurrentModificationException
+  at java.util.ArrayList$Itr.remove
+  at net.minecraft.launchwrapper.Launch.launch(Launch.java:117)
+```
+
+**反例对照**：把 mod jar 从 mods 里拿走，一样崩。所以跟 mod 无关。
+
+根因（**已用 20 行最小用例在本机 JRE 1.8.0_381 上复现**）：
+
+| 做法 | 结果 |
+| --- | --- |
+| `Iterator.next()` 之后 `Collections.sort(list)`，再 `it.remove()` | **CME** |
+| `toArray` + `Arrays.sort` + 逐个 `set()`，再 `it.remove()` | 没事 |
+
+- Java 8 的 `Collections.sort` 会委派给 `List.sort`，`ArrayList.sort` **结尾无条件 `modCount++`** →
+  任何已经打开的迭代器立刻失效。
+- launchwrapper 的 `Launch.launch` 一边 `Iterator` 遍历 tweaker 列表、一边在循环里 `it.remove()`。
+- **FML 7.2（1.7.2）的 `CoreModManager.sortTweakList()` 用的就是 `Collections.sort`** ——
+  它在被遍历的那个 `ArrayList` 上原地排序 → 下一个 `remove()` 必崩。
+- **FML 7.10（1.7.10）改成了 `toArray` + `Arrays.sort` + `List.set`**（javap 逐条比对确认），
+  所以 1.7.10 在 Java 8 上没事。
+
+验证过的组合都不行：lw 1.9 / lw 1.12、1.7.2 最早 build（10.12.0.969）到最新（10.12.2.1161）。
+**结论：Forge 1.7.2 在 Java 8 上起不来，它当年是配 Java 7 跑的。**
+
+而 Java 7 这条路也堵着：**我们的 mod 是 Java 8 语言级 + 字节码 52**（`--release 8`、lambda、`java.net.http` 早换掉了但箭头 lambda 遍地），
+class 文件在 JRE 7 上直接 `UnsupportedClassVersionError`。要支持 Java 7 等于把整个工程降回 source 7，不现实。
+
+### 34.5 最终结论
+
+**Forge 1.7.x = 1.7.10 一个，已完成。1.7.2 记为「上游不支持」，和 1.13.2 / 26.1 同级缺口。**
+
+要硬做的话只有一条路（成本高、收益低，没做）：自己发一个 launchwrapper 补丁 jar，
+把 `Launch.launch` 的两处 `Iterator.remove()` 改成下标循环 —— 但这要动 Mojang 的类，
+而且要额外塞进 classpath，属于「为了一个 2014 年的预览版改启动器核心」，不划算。
+
+替代方案（也没做）：给 1.7.2 单独下 JRE 7 —— 但 mod 是 Java 8 字节码，跑不了。
+
+保留的东西：`scripts/build-172forge.mjs`、`modx/shim172`、`modx/forge172`、`mk-srg-1710` 的 `--mc` 参数。
+哪天 FML 7.2 被谁修了（或者我们真去补 launchwrapper），一条命令就能出 jar；**现在不 publish 进 dist**。

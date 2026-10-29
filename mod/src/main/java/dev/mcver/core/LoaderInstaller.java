@@ -305,14 +305,20 @@ public final class LoaderInstaller {
         Path jar = gameDir.resolve(".mcver-tmp").resolve("forge-" + full + "-installer.jar");
         Files.createDirectories(jar.getParent());
 
-        // Forge 的 maven 布局有两代，**目录名和文件名都得跟着变**：
+        // Forge 的 maven 布局有三代，**目录名和文件名都得跟着变**：
         //   现代： net/minecraftforge/forge/<mc>-<ver>/forge-<mc>-<ver>-installer.jar
         //   1.7.10 后期（10.13.4.x）：
         //          net/minecraftforge/forge/<mc>-<ver>-<mc>/forge-<mc>-<ver>-<mc>-installer.jar
-        // 只拼现代那套会在 1.7.10 上 404 —— 而且 404 是**目录不存在**，不是文件缺失。
+        //   1.7.2（branch = mc172）：
+        //          net/minecraftforge/forge/<mc>-<ver>-mc172/forge-<mc>-<ver>-mc172-installer.jar
+        //          —— 不是 `-1.7.2` 而是 `-mc172`，就这一代这么写。
+        // 只拼现代那套会在 1.7.10 / 1.7.2 上 404 —— 而且 404 是**目录不存在**，不是文件缺失。
         String relModern = "net/minecraftforge/forge/" + full + "/forge-" + full + "-installer.jar";
         String relLegacy = "net/minecraftforge/forge/" + full + "-" + mc
                 + "/forge-" + full + "-" + mc + "-installer.jar";
+        String branch = "mc" + mc.replace(".", "");
+        String relBranch = "net/minecraftforge/forge/" + full + "-" + branch
+                + "/forge-" + full + "-" + branch + "-installer.jar";
         downloadFirst(new String[]{
                 "https://mirrors.ustc.edu.cn/bmclapi/" + relModern,
                 "https://cernet.mirrors.ustc.edu.cn/bmclapi/" + relModern,
@@ -321,7 +327,11 @@ public final class LoaderInstaller {
                 "https://mirrors.ustc.edu.cn/bmclapi/" + relLegacy,
                 "https://cernet.mirrors.ustc.edu.cn/bmclapi/" + relLegacy,
                 "https://bmclapi2.bangbang93.com/maven/" + relLegacy,
-                "https://maven.minecraftforge.net/" + relLegacy
+                "https://maven.minecraftforge.net/" + relLegacy,
+                "https://mirrors.ustc.edu.cn/bmclapi/" + relBranch,
+                "https://cernet.mirrors.ustc.edu.cn/bmclapi/" + relBranch,
+                "https://bmclapi2.bangbang93.com/maven/" + relBranch,
+                "https://maven.minecraftforge.net/" + relBranch
         }, jar);
 
         // 先把库里列的文件用我们自己的多源链下完，再让安装器 --offline 跑。
@@ -745,6 +755,21 @@ public final class LoaderInstaller {
             log.accept("已解出 " + filePath);
 
             // 2) versionInfo → versions/<target>/<target>.json
+            //
+            // 1.7.2 的 versionInfo **没有 inheritsFrom**（1.7.10 / 1.10.2 的都有），也没有
+            // downloads / assets / assetIndex —— 它只是一层「补丁」，原版那半边（客户端 jar、
+            // assetIndex、logging、javaVersion）全在 versions/<mc> 里。
+            // 不留 inheritsFrom 的话，后续 flatten 合并出来的 json 会缺这些字段，
+            // 或者 flatten 没跑（原版已经存在且被引用）时直接变成一个没有客户端 jar 的版本。
+            String mcOfProfile = Json.str(install, "minecraft", null);
+            if (mcOfProfile != null && Json.str(vi, "inheritsFrom", null) == null) {
+                Map<String, Object> dl = vi.get("downloads") instanceof Map ? Json.obj(vi.get("downloads")) : null;
+                boolean hasClient = dl != null && dl.get("client") != null;
+                if (!hasClient) {
+                    vi.put("inheritsFrom", mcOfProfile);
+                    log.accept("  versionInfo 没写 inheritsFrom，补上 " + mcOfProfile);
+                }
+            }
             Path verDir = gameDir.resolve("versions").resolve(target);
             Files.createDirectories(verDir);
             dev.mcver.core.Jdk.writeString(verDir.resolve(target + ".json"), Json.write(vi), StandardCharsets.UTF_8);

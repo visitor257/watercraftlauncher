@@ -1,7 +1,7 @@
 # 当前进度速查（2026-10-29 16:40）
 
 > 这份是**临时状态快照**，给人快速看「现在到哪了 / 下一步该干什么」。
-> 详细流水账在 `PROGRESS.md`（§1 – §33），坑位手册在 `HANDOVER.md`。
+> 详细流水账在 `PROGRESS.md`（§1 – §34），坑位手册在 `HANDOVER.md`。
 
 ---
 
@@ -10,7 +10,9 @@
 **mod 本体 48 个 jar（Fabric/Legacy Fabric 25 / Forge 18 / NeoForge 5）** ——
 本轮把 **1.7 全系**铺完了（1.7 / 1.7.1 ~ 1.7.8 / 1.7.10，9 个新 jar，逐个像素验收 PASS）；
 三个加载器实机真右键全 PASS；`dist/` 已全量重编。
-做不了的：Fabric 1.7.9（上游没 yarn + loader 自己报 `Unfixable conflicts`）、Forge 1.13.2、Forge/NeoForge 26.1、≤1.6.4。
+做不了的：Fabric **1.7.9**（上游没 yarn + loader 报 `Unfixable conflicts`）、**Forge 1.7.2**（FML 7.2 在 Java 8 上必崩，
+需要 Java 7 而 mod 是 Java 8 字节码；Forge 1.7 一共就只出过 1.7.2 和 1.7.10）、
+Forge 1.13.2（无 mojmap）、Forge/NeoForge 26.1（class 69 / Java 25）、≤1.6.4（没加载器）。
 
 ---
 
@@ -95,6 +97,39 @@
 
 ---
 
+## 1.7 本轮第四件：Forge 1.7.x —— 只有 1.7.2 和 1.7.10，1.7.2 是上游硬伤
+
+查了 maven：**Forge 1.7 这一代只有两个正经版本** —— `1.7.2`（159 build）和 `1.7.10`（163 build），
+1.7 / 1.7.1 / 1.7.3~1.7.9 **Forge 根本就没出过**。1.7.10 早就有，所以只剩 1.7.2 要看。
+
+**装 + 编 都通了**（顺手修了两个真 bug）：
+- Forge 1.7.2 的 maven 目录名是 `-mc172` 不是 `-1.7.2`（BMCLAPI 的 `branch` 字段）→ `installForge` 加第三套候选。
+- legacy install_profile 的 versionInfo **可能不带 `inheritsFrom`**（1.7.2 就没有）→ 原版已存在时
+  会得到一个没有客户端 jar 的版本；现在按 `install.minecraft` 补上。
+- `mk-srg-1710.mjs` 支持 `--mc`；`build-172forge.mjs` + `modx/{shim172,forge172}` 编译一次就过，
+  只差 `Minecraft#func_152344_a`（1.7.6 之后才有）→ 改成自己排队的 tick 队列。
+
+**但游戏起不来，而且跟 mod 无关**（拿走 mod jar 一样崩）：
+
+```
+java.util.ConcurrentModificationException at ArrayList$Itr.remove
+  at net.minecraft.launchwrapper.Launch.launch(Launch.java:117)
+```
+
+根因（已用 20 行最小用例在本机 JRE 1.8.0_381 复现）：Java 8 的 `Collections.sort` → `ArrayList.sort`
+**结尾无条件 `modCount++`**；FML 7.2 的 `sortTweakList()` 就在 launchwrapper 正用 `Iterator` 遍历的
+那个 ArrayList 上原地排序 → 下一次 `it.remove()` 必崩。**FML 7.10（1.7.10）改成了
+`toArray` + `Arrays.sort` + `List.set`**（javap 比对确认），所以 1.7.10 没事。
+
+测过的组合都不行：lw 1.9 / lw 1.12、最早 build 10.12.0.969 到最新 10.12.2.1161。
+**Forge 1.7.2 当年是配 Java 7 跑的**；而 Java 7 这条路也堵 —— 我们 mod 是 Java 8 语言级、
+字节码 52，JRE 7 直接 `UnsupportedClassVersionError`。
+
+**结论：Forge 1.7.x = 1.7.10，已完成。1.7.2 记为上游不支持（跟 1.13.2 / 26.1 同级），
+不 publish 进 dist**。构建脚本和垫片留着，哪天 FML 7.2 被修了一条命令就能出 jar。
+
+---
+
 ## 2. 验证现状（诚实版）
 
 | 目标 | 界面（像素） | 真右键 | 备注 |
@@ -105,6 +140,7 @@
 | Fabric 1.20.0 | 绿 | **PASS** | `UseItemCallback` 路径 |
 | 其余 36 个 | 像素验收全绿 | 未逐一实测 | 代码同源，按加载器分三类实现 |
 | **1.7 全系（10 个版本）** | 逐版本 PASS | 1.7.x 走 `onStartUse`（不依赖按键状态） | 本轮新增 9 个 jar |
+| Forge 1.7.2 | — | — | **上游硬伤**：FML 7.2 在 Java 8 上必崩（§PROGRESS 34），需要 Java 7，而 mod 是 Java 8 字节码 |
 | 远古版（b1.x / a1.x） | — | — | 能装能起，**装不了 mod**（没有 Fabric/Forge） |
 
 **已知瑕疵**：legacy（≤1.13.2）物品图标是紫黑格 —— Legacy Fabric loader 不挂 mod 的 `assets/`，
