@@ -2,6 +2,7 @@ package dev.mcver;
 
 import net.minecraft.creativetab.CreativeTabs;
 import net.minecraft.item.Item;
+import net.minecraft.item.ItemStack;
 import net.minecraftforge.fml.common.Mod;
 import net.minecraftforge.fml.common.event.FMLPreInitializationEvent;
 import net.minecraftforge.fml.common.registry.GameRegistry;
@@ -30,7 +31,7 @@ public class McVerMod {
     public static final String MOD_ID = "mcver";
     public static final dev.mcver.core.Log LOGGER = new dev.mcver.core.Log(MOD_ID);
 
-    public static final Item DOWNLOAD_TOOL = new Item();
+    public static final Item DOWNLOAD_TOOL = new McVerItem();
 
     @Mod.EventHandler
     public void preInit(FMLPreInitializationEvent e) {
@@ -40,6 +41,8 @@ public class McVerMod {
 
         GameRegistry.registerItem(DOWNLOAD_TOOL, "download_tool");
         registerModel();
+
+        registerRecipe();
 
         McVerClient.install();
         LOGGER.info("mcver: 物品已登记 {}，客户端 tick 已挂载", DOWNLOAD_TOOL.func_77658_a());
@@ -52,8 +55,33 @@ public class McVerMod {
                     DOWNLOAD_TOOL, 0,
                     new net.minecraft.client.resources.model.ModelResourceLocation(
                             MOD_ID + ":download_tool", "inventory"));
+            LOGGER.info("mcver: model registered");
         } catch (Throwable t) {
             LOGGER.warn("mcver: 模型登记失败 {}", t.toString());
+        }
+    }
+
+    /**
+     * 水桶 → 下载器的无序合成。
+     *
+     * <p>JSON 配方是 1.12 才有的，所以 1.11 及以下只能代码登记。
+     * 登记完顺手扫一遍 {@code CraftingManager} 的列表，日志里直接给「真的在不在」——
+     * 免得又出现「调了注册函数就当成功」这种事。
+     */
+    @SuppressWarnings("rawtypes")
+    private static void registerRecipe() {
+        try {
+            net.minecraftforge.fml.common.registry.GameRegistry.addShapelessRecipe(
+                    new ItemStack(DOWNLOAD_TOOL), net.minecraft.init.Items.field_151131_as);
+            boolean found = false;
+            for (Object o : net.minecraft.item.crafting.CraftingManager.func_77594_a().func_77592_b()) {
+                net.minecraft.item.crafting.IRecipe r = (net.minecraft.item.crafting.IRecipe) o;
+                ItemStack out = r.func_77571_b();
+                if (out != null && out.func_77973_b() == DOWNLOAD_TOOL) { found = true; break; }
+            }
+            LOGGER.info("mcver: recipe download_tool=" + found);
+        } catch (Throwable t) {
+            LOGGER.warn("mcver: 配方登记失败 {}", t.toString());
         }
     }
 

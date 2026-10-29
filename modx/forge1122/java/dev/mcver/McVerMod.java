@@ -36,7 +36,7 @@ public class McVerMod {
     public static final String MOD_ID = "mcver";
     public static final dev.mcver.core.Log LOGGER = new dev.mcver.core.Log(MOD_ID);
 
-    public static final Item DOWNLOAD_TOOL = new Item();
+    public static final Item DOWNLOAD_TOOL = new McVerItem();
 
     @Mod.EventHandler
     @SuppressWarnings({ "unchecked", "rawtypes" })
@@ -49,8 +49,29 @@ public class McVerMod {
         entry.setRegistryName(new ResourceLocation(MOD_ID, "download_tool"));
         ((IForgeRegistry) ForgeRegistries.ITEMS).register(entry);
 
+        registerModel();
+
         McVerClient.install();
         LOGGER.info("mcver: 物品已登记 {}，客户端 tick 已挂载", entry.getRegistryName());
+    }
+
+    /**
+     * 把物品指向它自己的模型。
+     *
+     * <p><b>1.11 / 1.12 不会自动找 {@code models/item/<名字>.json}</b>，不做这一步物品就是
+     * 紫黑格「missing model」——用户报的「图标（水）没了」就是这个。1.10.2 那份一直有，
+     * 1.11/1.12 这份当时漏了。
+     */
+    private static void registerModel() {
+        try {
+            net.minecraftforge.client.model.ModelLoader.setCustomModelResourceLocation(
+                    DOWNLOAD_TOOL, 0,
+                    new net.minecraft.client.renderer.block.model.ModelResourceLocation(
+                            MOD_ID + ":download_tool", "inventory"));
+            LOGGER.info("mcver: model registered");
+        } catch (Throwable t) {
+            LOGGER.warn("mcver: 模型登记失败 {}", t.toString());
+        }
     }
 
     /** 物品本体（注册完成后才非 null）。 */

@@ -20,6 +20,7 @@ import net.minecraftforge.fml.common.gameevent.TickEvent;
 public final class McVerClient {
 
     private static boolean autoOpened;
+    private static boolean recipeChecked;
     private static Object lastScreen;
     private static boolean mDown;
     private static boolean inited;
@@ -46,6 +47,20 @@ public final class McVerClient {
         }
 
         if (System.getenv("MCVER_OPEN_GUI") != null) autoOpenHook(client);
+
+        // 配方是不是真的进了注册表，只有资源重载之后（标题界面）才看得到。
+        // 这条日志是给外部验收用的：它查的是 CraftingManager 里真实存在的那条 recipe，
+        // 不是「我调过注册函数」这种自证。
+        if (!recipeChecked && client.field_71462_r instanceof GuiMainMenu) {
+            recipeChecked = true;
+            try {
+                Object r = net.minecraft.item.crafting.CraftingManager.func_193373_a(
+                        new net.minecraft.util.ResourceLocation(McVerMod.MOD_ID, "download_tool"));
+                McVerMod.LOGGER.info("mcver: recipe loaded download_tool=" + (r != null));
+            } catch (Throwable t) {
+                McVerMod.LOGGER.warn("mcver: 配方自检失败 {}", t.toString());
+            }
+        }
 
         if (client.field_71439_g == null) {
             mDown = false;

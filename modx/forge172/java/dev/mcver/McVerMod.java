@@ -5,6 +5,7 @@ import cpw.mods.fml.common.event.FMLPreInitializationEvent;
 import cpw.mods.fml.common.registry.GameRegistry;
 import net.minecraft.creativetab.CreativeTabs;
 import net.minecraft.item.Item;
+import net.minecraft.item.ItemStack;
 
 /**
  * Forge 入口（MC 1.7.10 / Forge 10.13.x，SRG 命名空间）。
@@ -35,8 +36,32 @@ public class McVerMod {
     @Mod.EventHandler
     public void preInit(FMLPreInitializationEvent e) {
         GameRegistry.registerItem(DOWNLOAD_TOOL, "download_tool");
+        registerRecipe();
         McVerClient.install();
         LOGGER.info("mcver: 物品已登记 {}，客户端 tick 已挂载", DOWNLOAD_TOOL.func_77658_a());
+    }
+
+    /**
+     * 水桶 → 下载器的无序合成。
+     *
+     * <p>1.7 连 JSON 配方都没有，只能代码登记；登记完扫一遍 {@code CraftingManager}
+     * 的列表并把结果打进日志，别拿「调过注册函数」当成功。
+     */
+    @SuppressWarnings("rawtypes")
+    private static void registerRecipe() {
+        try {
+            GameRegistry.addShapelessRecipe(new ItemStack(DOWNLOAD_TOOL),
+                    net.minecraft.init.Items.field_151131_as);
+            boolean found = false;
+            for (Object o : net.minecraft.item.crafting.CraftingManager.func_77594_a().func_77592_b()) {
+                net.minecraft.item.crafting.IRecipe r = (net.minecraft.item.crafting.IRecipe) o;
+                ItemStack out = r.func_77571_b();
+                if (out != null && out.func_77973_b() == DOWNLOAD_TOOL) { found = true; break; }
+            }
+            LOGGER.info("mcver: recipe download_tool=" + found);
+        } catch (Throwable t) {
+            LOGGER.warn("mcver: 配方登记失败 {}", t.toString());
+        }
     }
 
     /** 物品本体。 */
@@ -52,6 +77,20 @@ public class McVerMod {
             func_77625_d(1);                          // setMaxStackSize
             func_77637_a(CreativeTabs.field_78027_g); // setCreativeTab(TOOLS)
             func_111206_d("mcver:download_tool");     // setTextureName → textures/items/download_tool.png
+
+        }
+
+        /** 右键打开启动器（1.7 的钩子还是「返回 ItemStack」的老形态，没有 EnumHand）。 */
+        @Override
+        public net.minecraft.item.ItemStack func_77659_a(
+                net.minecraft.item.ItemStack stack,
+                net.minecraft.world.World world,
+                net.minecraft.entity.player.EntityPlayer player) {
+            if (world.field_72995_K) {                 // isRemote：只在客户端开界面
+                LOGGER.info("mcver: right-click open（右键打开启动器）");
+                McVerClient.openMain();
+            }
+            return super.func_77659_a(stack, world, player);
         }
     }
 }
