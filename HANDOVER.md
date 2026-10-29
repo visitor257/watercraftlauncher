@@ -73,7 +73,7 @@ clone 完**只有源码**，还要自己补：
 | **Node.js** | **≥ 20.11** | 脚本用 `import.meta.dirname`（20.11 才有）。本机是 v24.19.0。**零 npm 依赖，不需要 `npm install`** |
 | **JDK 21** | 21.x | `javac` / `javap` / `jar`。所有编译都以它为基准（`--release 8/17/21`） |
 | JRE 8 | 1.8.0_3xx | 只在「1.7~1.12 老版本启动验收」时用到；没有不影响构建 |
-| Gradle | 8.14.2（wrapper 缓存） | 只有 `fabric-modern` 那一步用。`build-all.ps1` 会自己找：`-Gradle` 参数 > `GRADLE_HOME` > `.tools\gradle-8.12` > `PATH` > `~\.gradle\wrapper\dists\gradle-8.*` |
+| Gradle | 8.14.2（wrapper 缓存） | 只有 `fabric-modern` 那一步用。`build-all.ps1` 会自己找：`-Gradle` 参数 > `GRADLE_HOME` > `.tools\gradle-8.12` > `PATH` > `~\.gradle\wrapper\dists\gradle-8.*`（同一目录多个时取版本最高的）。**本机实测用的是 8.14.2** |
 | 网络 | Mojang + BMCLAPI | `bmclapi2.bangbang93.com` 是本机实测唯一稳定的镜像。**NeoForge 官方 maven 在国内链路不通**（不是 DNS 问题） |
 | 磁盘 | ≥ 30 GB 空闲 | 13 GB 工程 + 构建中间产物 |
 
@@ -104,7 +104,7 @@ powershell -ExecutionPolicy Bypass -File scripts\build-probe.ps1
 node scripts\verify-gui-one.mjs V1.21.4-FORGE
 #   期望最后一行：ok: true  center C6C6C6  hits >10000  children 17  870x519
 
-# 3) 全量重建（41 步，约 8~12 分钟）
+# 3) 全量重建（41 步，约 8~12 分钟；本机实测 8 分钟，其中 fabric-modern 那一步就占 5 分钟）
 node scripts\rebuild-all.mjs
 ```
 
