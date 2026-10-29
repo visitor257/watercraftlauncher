@@ -39,7 +39,7 @@ public class McVerClient implements ClientModInitializer {
      */
     private static void startAutoOpenPoll() {
         Thread t = new Thread(() -> {
-            for (int i = 0; i < 1200; i++) { // 最多等 60s（50ms 一次）
+            for (int i = 0; i < 6000; i++) { // 最多等 5 分钟（50ms 一次）—— 1.7 首次启动要刷 600 多个资源，1 分钟根本不够
                 try {
                     Thread.sleep(50L);
                 } catch (InterruptedException e) {

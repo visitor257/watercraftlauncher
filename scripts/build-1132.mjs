@@ -68,7 +68,13 @@ function compatDir() {
   // 按「API 代」复用：
   //   1.9~1.12 与 1.11.2 同一代（有 GuiScreen 血统、无 Element 体系）
   //   1.13.x   与 1.13.2 同一代（GUI 重构后、1.14 前）
-  const FAMILIES = [[/^1\.8(\.|$)/, '1.8.9'], [/^1\.(9|10)(\.|$)/, '1.10.2'], [/^1\.(11|12)(\.|$)/, '1.11.2'], [/^1\.13(\.|$)/, '1.13.2']];
+  const FAMILIES = [[/^1\.8(\.|$)/, '1.8.9'], [/^1\.(9|10)(\.|$)/, '1.10.2'], [/^1\.(11|12)(\.|$)/, '1.11.2'], [/^1\.13(\.|$)/, '1.13.2'],
+    // 1.7 家族分两种映射风格（都是 Legacy Fabric）：
+    //   1.7.2~1.7.8 的 yarn 没映射 Screen/ButtonWidget 成员（method_219xx/field_225xx）→ compat/1.7.2
+    //   1.7.10 映射是全的（render/tick/buttons）→ 它自己的目录
+    // 实测 1.7.2/1.7.4 的中间名 id 完全一致，所以同一个 jar 能盖 1.7.2~1.7.8。
+    [/^1\.7\.(2|3|4|5|6|7|8)(\.|$)/, '1.7.2'],
+    [/^1\.7(\.|$)|^1\.7\.1(\.|$)/, '1.7.2']];
   const cands = [];
   for (const [re, dir] of FAMILIES) if (re.test(MC)) cands.push(dir);
   cands.push('1.14');
@@ -127,11 +133,27 @@ mkdirSync(W, { recursive: true });
 writeFileSync(srcList, [...byRel.values()].join('\n'), 'utf8');
 
 // ---- javac 的 classpath --------------------------------------------------------
+// inherit（1.7 这种没被 flatten 掉的版本）要看继承链：加载器的 json 里只有它自己的 11 个库，
+// 原版那 25 个（log4j / guava / netty…）在父版本的 json 里 —— 不跟链走就会「找不到 log4j」。
+function chainLibs(id, seenIds) {
+  if (seenIds.has(id)) return [];
+  seenIds.add(id);
+  const p = join(ROOT, 'testgame', 'versions', id, `${id}.json`);
+  if (!existsSync(p)) return [];
+  const json = JSON.parse(readFileSync(p, 'utf8'));
+  const parent = json.inheritsFrom ? chainLibs(json.inheritsFrom, seenIds) : [];
+  return [...(json.libraries || []), ...parent];
+}
 function libCp() {
-  const json = JSON.parse(readFileSync(findInstanceJson(), 'utf8'));
+  const jsonPath = findInstanceJson();
+  const json = JSON.parse(readFileSync(jsonPath, 'utf8'));
   const out = [named];
   const seen = new Set();
-  for (const lib of json.libraries || []) {
+  const libs = [
+    ...(json.libraries || []),
+    ...(json.inheritsFrom ? chainLibs(json.inheritsFrom, new Set([json.id])) : []),
+  ];
+  for (const lib of libs) {
     const parts = lib.name.split(':');
     const [group, artifact, version, classifier] = parts;
     if (classifier && /native/i.test(classifier)) continue;
@@ -142,6 +164,14 @@ function libCp() {
     if (!existsSync(p) || seen.has(p)) continue;
     seen.add(p);
     out.push(p);
+  }
+  // 1.7 的 log4j 只有父版本声明，且下载器只抓了 2.0-beta9 之外的东西 —— 补上。
+  for (const rel of [
+    'org/apache/logging/log4j/log4j-api/2.0-beta9/log4j-api-2.0-beta9.jar',
+    'org/apache/logging/log4j/log4j-core/2.0-beta9/log4j-core-2.0-beta9.jar',
+  ]) {
+    const p = join(ROOT, 'testgame', 'libraries', rel);
+    if (existsSync(p) && !seen.has(p)) out.push(p);
   }
   // fabric-loader 本身（入口接口 ModInitializer / ClientModInitializer）
   for (const rel of ['net/fabricmc/fabric-loader/0.20.1/fabric-loader-0.20.1.jar']) {
@@ -178,6 +208,12 @@ rmSync(join(res, 'assets', 'mcver', 'textures', 'item'), { recursive: true, forc
 writeFileSync(join(res, 'assets', 'mcver', 'models', 'item', 'download_tool.json'), JSON.stringify({
   parent: 'item/generated',
   textures: { layer0: 'mcver:items/download_tool' },
+}, null, 2));
+// 1.6~1.12 的资源包需要 pack.mcmeta：Fabric loader 把 mod jar 当一个资源包挂上，
+// 老版本的 ResourcePack 读 meta 时会先找它；没有就整个包不生效 ——
+// 表现是物品贴图 FileNotFoundException（"unable to load mcver:textures/items/download_tool.png"）。
+writeFileSync(join(res, 'pack.mcmeta'), JSON.stringify({
+  pack: { pack_format: 1, description: 'Water Craft Launcher' },
 }, null, 2));
 // 配方：1.13 起挪到 data/<modid>/recipes/
 const compatRes = join(MOD, 'src', 'compat', '1.14', 'resources');

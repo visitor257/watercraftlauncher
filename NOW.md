@@ -1,14 +1,16 @@
-# 当前进度速查（2026-10-29 13:10）
+# 当前进度速查（2026-10-29 16:40）
 
 > 这份是**临时状态快照**，给人快速看「现在到哪了 / 下一步该干什么」。
-> 详细流水账在 `PROGRESS.md`（§1 – §30），坑位手册在 `HANDOVER.md`。
+> 详细流水账在 `PROGRESS.md`（§1 – §33），坑位手册在 `HANDOVER.md`。
 
 ---
 
 ## 一句话
 
-**mod 本体 39 个 jar（Fabric 16 / Forge 18 / NeoForge 5），三个加载器实机真右键全部 PASS；
-`dist/` 已全量重编（31/31）。** 已知缺口仍是 Forge 1.13.2 和 Forge/NeoForge 26.1。
+**mod 本体 48 个 jar（Fabric/Legacy Fabric 25 / Forge 18 / NeoForge 5）** ——
+本轮把 **1.7 全系**铺完了（1.7 / 1.7.1 ~ 1.7.8 / 1.7.10，9 个新 jar，逐个像素验收 PASS）；
+三个加载器实机真右键全 PASS；`dist/` 已全量重编。
+做不了的：Fabric 1.7.9（上游没 yarn + loader 自己报 `Unfixable conflicts`）、Forge 1.13.2、Forge/NeoForge 26.1、≤1.6.4。
 
 ---
 
@@ -65,6 +67,34 @@
 
 ---
 
+## 1.6 本轮第三件：1.7 全系补齐（1.7 / 1.7.1 ~ 1.7.8 / 1.7.10）
+
+用户问「1.7.2 怎么没有？其他版本呢？」。之前只做了 1.7.10，理由是「1.7.2 没有
+`MinecraftClient#execute`，跨 1.7.x 一个 jar 盖不住」。这次逐个补：
+
+- **真正的原因不是 API 不同，是映射不全**：1.7.2~1.7.8 的 Legacy Fabric yarn
+  **没映射 `Screen`/`ButtonWidget` 的任何成员**（jar 里就是 `method_21925`/`field_22535`）。
+  除这两个类，其余映射跟 1.7.10 完全一样。
+- **中间名是 javap -c 逐个认出来的**（签名唯一的直接定；7 个空 `()V` 靠方法体调的
+  `Mouse.next`/`Keyboard.getEventKey`/`bindTexture` 区分；tick vs removed 反查 `MinecraftClient` 调用点）。
+  完整对照表在 `compat/1.7.2/.../ChromeScreen.java` 顶部。
+- **差异关在基类里**：`ChromeScreen` 自己声明 `width/height/textRenderer` 影子字段（每次
+  init/render/tick 从 `field_225xx` 同步），并把 `method_21947/21936` 转调自己的 `init()/tick()` ——
+  于是 41 个共享源文件、`MainScreen` 一个字都不用改。
+- **没有 `execute` 就自己排队**：`core/Ui.exec` 改成「主线程立刻跑、否则入队」，
+  `ChromeScreen#tick` 每 tick 抽一次（≤50ms）。**但自检钩子必须直接调 `openMain()`**——
+  界面还没开时没人 drain，排队就是死锁（踩过）。
+- 1.7 首次启动刷 600+ 资源要 >60s，自检轮询窗口从 60s 放宽到 5 分钟。
+- 顺手修：`build-1132` 的 classpath 不跟 `inheritsFrom`（1.7 没被 flatten，原版 25 个库在父 json 里
+  → 编 1.7 报「找不到 log4j」）；`pack.mcmeta` 补进所有 legacy target。
+
+| 版本 | 结果 |
+| --- | --- |
+| 1.7 / 1.7.1 / 1.7.2 / 1.7.3 / 1.7.4 / 1.7.5 / 1.7.6 / 1.7.7 / 1.7.8 / 1.7.10 | 全部 PASS（中心 `C6C6C6`、children 17） |
+| 1.7.9 | **做不了**：meta 上没有 yarn；loader 自己 `Unfixable conflicts` |
+
+---
+
 ## 2. 验证现状（诚实版）
 
 | 目标 | 界面（像素） | 真右键 | 备注 |
@@ -74,18 +104,26 @@
 | NeoForge 20.6 | 绿 | **PASS**（新 jar） | — |
 | Fabric 1.20.0 | 绿 | **PASS** | `UseItemCallback` 路径 |
 | 其余 36 个 | 像素验收全绿 | 未逐一实测 | 代码同源，按加载器分三类实现 |
+| **1.7 全系（10 个版本）** | 逐版本 PASS | 1.7.x 走 `onStartUse`（不依赖按键状态） | 本轮新增 9 个 jar |
 | 远古版（b1.x / a1.x） | — | — | 能装能起，**装不了 mod**（没有 Fabric/Forge） |
+
+**已知瑕疵**：legacy（≤1.13.2）物品图标是紫黑格 —— Legacy Fabric loader 不挂 mod 的 `assets/`，
+历史遗留（补 `pack.mcmeta` 也没好），不影响界面与右键。
 
 ---
 
 ## 3. 常用命令
 
 ```powershell
-# 全量重建（31 步 + 自动 publish 到 dist）
+# 全量重建（40 步 + 自动 publish 到 dist）
 node scripts/rebuild-all.mjs
 node scripts/rebuild-all.mjs forge      # 只跑名字含 "forge" 的步
 node scripts/rebuild-all.mjs publish    # 只 publish
 node scripts/rebuild-all.mjs --list     # 列步骤
+
+# 1.7 专用：体检映射 / 逐版本构建+像素验收
+node scripts/support-17x.mjs 1.7 1.7.1 1.7.9   # 装实例 + 出 named jar + 报映射风格
+node scripts/build-17x.mjs                      # 默认 1.7 ~ 1.7.8 全跑
 
 # 装 jar
 node scripts/put-mod.mjs 1.21.4-forge-54.1.22 watercraftlauncher-forge-1.0.0-mc1.21.4.jar

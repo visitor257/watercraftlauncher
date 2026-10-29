@@ -1912,3 +1912,138 @@ node scripts/verify-download-tab.mjs V1.21.4-FABRIC --tab 快照     # 反例：
   再抢一次，并打印 `foreground=… target=…` 核对。
 - 探针要等清单加载完（至少一条 `分类=` 日志）才点，否则「加载完成那次 recompute」会冒充成点击结果
   —— 第一版就是这么假 FAIL 的。
+
+## 33. 2026-10-29（第十五轮）：1.7 全系 —— 1.7 / 1.7.1 ~ 1.7.8 / 1.7.10 全部装上、起得来、界面验收 PASS
+
+用户问「1.7.2 怎么没有？其他版本呢？」——之前只做了 1.7.10，理由写在第 16 节第 8 条：
+「1.7.2 的 `MinecraftClient` 没有 `execute(Callable)`，跨 1.7.x 一个 jar 盖不住」。
+这次把这条彻底解决：**9 个版本各出一个 jar，逐个像素验收**。
+
+| 版本 | 实例 | 结果 |
+| --- | --- | --- |
+| 1.7 | `fabric-loader-0.20.1-1.7` | PASS 15137 / children 17 |
+| 1.7.1 | `fabric-loader-0.20.1-1.7.1` | PASS 15137 |
+| 1.7.2 | `V1.7.2-FABRIC` | PASS 15129 |
+| 1.7.3 | `fabric-loader-0.20.1-1.7.3` | PASS 15137 |
+| 1.7.4 | `fabric-loader-0.20.1-1.7.4` | PASS 15137 |
+| 1.7.5 | `fabric-loader-0.20.1-1.7.5` | PASS 15137 |
+| 1.7.6 | `fabric-loader-0.20.1-1.7.6` | PASS 15137 |
+| 1.7.7 | `fabric-loader-0.20.1-1.7.7` | PASS 15137 |
+| 1.7.8 | `fabric-loader-0.20.1-1.7.8` | PASS 15137 |
+| 1.7.10 | `V1.7.10-FABRIC` | PASS 15128 |
+| **1.7.9** | — | **做不了**（见 33.5） |
+
+判据照旧：真窗口 `PrintWindow` 抓图 → 中心 `C6C6C6`、命中 > 1 万、`children=17`。
+
+### 33.1 真正的坑：1.7.2 ~ 1.7.8 的 yarn 没映射 `Screen`
+
+不是「API 不一样」，是**映射不全**。对照两代的 `mappings.tiny`：
+
+- 1.7.10：`Screen` 的成员全有名字（`field_1230 → width`、`method_1025 → render`、…）
+- 1.7.2 ~ 1.7.8：`net/minecraft/client/gui/screen/Screen` 一个成员都没映射，jar 里就是中间名本身
+
+于是 1.7.10 那份适配层（写 `render/tick/buttons`）在 1.7.2 上**直接编不过**，40 个错误。
+
+**除 `Screen`（和 `ButtonWidget.message`）之外，1.7.2 的映射是全的** ——
+`TextFieldWidget`、`TextRenderer`、`ItemRenderer`、`SimpleRegistry`、`Session`、`Text`
+跟 1.7.10 一模一样。所以这不是「另一个代码库」，只是名字缺失，可以在基类里挡住。
+
+### 33.2 中间名是怎么认出来的（javap -c 逐个体检）
+
+`compat/1.7.2/java/dev/mcver/ui/ChromeScreen.java` 顶部的注释表就是结论：
+
+```
+field_22535/22536 = width/height        field_22537/22538 = buttons/labels
+field_22540       = textRenderer        field_22533       = itemRenderer
+method_21925(IIF) = render              method_21946()    = renderBackground
+method_21936()    = tick                method_21929      = init(mc,w,h)
+method_21947()    = init()              method_21933()    = removed
+method_21926/35/27 = mouseClicked/Released/Dragged
+method_21930(ButtonWidget) = buttonClicked
+method_21938()    = handleMouse         method_21924(CI)  = keyPressed
+method_21940()    = shouldPauseGame     method_21939(String) = setClipboard
+method_21878(IIIII) = DrawableHelper.fill
+```
+
+认法（没有玄学）：
+- **签名唯一**的直接定：`(IIF)V` 只有 render、`(CI)V` 只有 keyPressed、
+  `(MinecraftClient,int,int)V` 只有 init、`()Z` 只有 shouldPauseGame。
+- **剩下 7 个都是 `()V` 空的**（init/tick/removed/handleInput/handleMouse/handleKeyboard/renderBackground），
+  靠**方法体调了谁**区分：`handleInput` 里先是 `Mouse.next` 再是 `Keyboard.next`；
+  `handleMouse` 用 `Mouse.getEventX/getEventButton`；`handleKeyboard` 用 `Keyboard.getEventKey`；
+  `renderBackground()` 转调 `renderBackground(int)`，后者 `bindTexture` + `Tessellator` 画整屏。
+- **tick / removed 谁是谁**：反查 `MinecraftClient` 的调用点 —— `method_21933` 出现在
+  `setScreen` 里（关旧屏），`method_21936` 出现在主循环（每 tick）。
+- `ButtonWidget.message` 没名字 → `field_22510`（唯一一个 `String` 公共字段）。
+
+### 33.3 适配层怎么把差异关在基类里
+
+主源码（`MainScreen` + 各 Page，41 个文件）是跨 14 个 target 共用的，不能为了 1.7.2 复制一份。
+两处硬缝在 `ChromeScreen` 里缝掉：
+
+1. **`width/height/textRenderer`**：1.7.2 上它们叫 `field_22535/22536/22540`。
+   `ChromeScreen` 自己声明这三个字段，在 `init`/`render`/`tick` 里从真字段同步 ——
+   子类照旧写 `width`，行为不变。
+2. **`Screen#init()` / `tick()`**：1.7.2 上叫 `method_21947()` / `method_21936()`。
+   `ChromeScreen` 覆写这两个中间名方法，转调自己的 `public void init()` / `public void tick()`，
+   于是 `MainScreen` 上那两个 `@Override` 依然成立。
+
+其余几个小改：`Btn` 写 `field_22510`、`Ctx.fill` 走 `method_21878`、
+`Ui.clipboard` 走 `method_21939`。
+
+### 33.4 没有 `execute` 怎么办：自己排队 + tick 抽取
+
+`Ui.exec` 在 1.7.2 里改成：
+
+```java
+if (当前线程 == clientThread) 直接跑; else 丢进 QUEUE
+// clientThread 第一次调用时认领；drain() 在 ChromeScreen#tick() 里跑队列
+```
+
+`Screen#tick` 每 tick 都被 MC 调，队列最长等 1 tick（50ms），
+对「安装完成刷列表」「登录回调改状态」这类 UI 更新完全够用。
+
+**两个必须记住的点**：
+1. **自检钩子不能走队列**：`MCVER_OPEN_GUI` 的轮询线程在界面**还没开**时就要开界面，
+   而 drain 只在**我们自己的**界面 tick 里发生 → 排进去就永远出不来（死锁）。
+   所以 1.7.x 的 `startAutoOpenPoll` 直接调 `openMain()`（1.7 的 `setScreen` 就是给字段赋值，
+   下一帧自然画）。这条只在自检路径上。
+2. **中文/慢启动要放宽等待**：1.7 首次启动刷 600+ 资源要 60 秒以上，原来 1200×50ms = 60s 的
+   等待窗口会在标题界面出现前就超时 → 表现成「mod 没生效」。改成 6000 次（5 分钟）。
+
+### 33.5 1.7.9 为什么做不了（不是偷懒）
+
+- `meta.legacyfabric.net/v2/versions/yarn/1.7.9` **就没有 yarn**（1.7/1.7.1/1.7.2/…/1.7.8 都有），
+  没有映射就没法出 named jar，也就没法编。
+- 而且 loader 自己在 game remap 阶段就死：`tinyremapper: Unfixable conflicts`（第 16 节第 7 条）。
+- 结论：**上游缺件 + 上游 bug**，等 Legacy Fabric 补 1.7.9 的 yarn 再说。
+
+### 33.6 顺手修的两个真问题
+
+1. **`build-1132` 的 classpath 不跟 `inheritsFrom`**：1.7 这种没被 flatten 掉的版本，
+   加载器 json 只有它自己的 11 个库，原版那 25 个（log4j / guava / netty…）在父 json 里 →
+   编 1.7 直接报「找不到 org.apache.logging.log4j」。现在 `libCp()` 沿继承链收库。
+2. **`pack.mcmeta`**：老版本把 mod jar 当资源包挂，没有 meta 整包不生效。
+   `build-1132` 现在给所有 legacy target 都写 `{"pack":{"pack_format":1}}`。
+
+### 33.7 已知瑕疵：legacy 的物品图标是紫黑格
+
+1.7.x 和 1.13.2 的日志都有：
+
+```
+Using missing texture, unable to load mcver:textures/items/download_tool.png
+Unable to load model: 'mcver:download_tool#inventory' ... FileNotFoundException
+```
+
+**这是历史遗留，不是这轮引入的**（这轮之前 1.7.10 的日志一模一样），
+说明 Legacy Fabric loader 在这几个版本上根本没把 mod 的 `assets/` 挂进资源包。
+不影响界面、不影响右键打开，只是 `/give` 出来的物品图标是紫黑格。
+补 `pack.mcmeta` 之后仍有 —— 根因还没查（猜测是 loader 对 1.7~1.13 的
+`ModResourcePack` 依赖的类在那种 MC 里不存在）。
+
+### 33.8 工具
+
+- `scripts/support-17x.mjs <mc...>`：装实例 → 出 named jar → 体检映射风格（Screen/fill/message）。
+- `scripts/build-17x.mjs [mc...]`：逐版本 构建 → 装进实例 → 像素验收，输出汇总表。
+- `scripts/build-1132.mjs` 的 `FAMILIES` 加了 1.7 规则（1.7~1.7.8 → `compat/1.7.2`）。
+- `rebuild-all.mjs` 现在有 40 步（1.7 那 9 个也进去了）。

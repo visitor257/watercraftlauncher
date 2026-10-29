@@ -17,8 +17,16 @@ mkdirSync(LOGS, { recursive: true });
 const NODE = process.execPath;
 const PS = 'powershell';
 
-// ---- Legacy Fabric（javac + tiny-remapper）：1.7.10 ~ 1.13.2
+// ---- Legacy Fabric（javac + tiny-remapper）：1.7 ~ 1.13.2
+// 1.7~1.7.8 用 compat/1.7.2（那几代的 yarn 没映射 Screen/ButtonWidget 成员，
+// 中间名 id 实测完全一致，所以一份适配层能盖它们）；1.7.10 的映射是全的，单独一份。
+// 1.7.9 缺 yarn（meta 上没有）+ loader 自己 remap 就直接 Unfixable conflicts，做不了。
 const fabricLegacy = [
+  ...['1.7', '1.7.1', '1.7.2', '1.7.3', '1.7.4', '1.7.5', '1.7.6', '1.7.7', '1.7.8'].map((v) => {
+    // 早期手工建的实例叫 V<mc>-FABRIC，脚本建的叫 fabric-loader-0.20.1-<mc>
+    const inst = v === '1.7.2' ? 'V1.7.2-FABRIC' : `fabric-loader-0.20.1-${v}`;
+    return [`fabric-${v}`, ['scripts/build-1132.mjs', v, '--instance', inst]];
+  }),
   ['fabric-1.7.10', ['scripts/build-1132.mjs', '1.7.10', '--instance', 'V1.7.10-FABRIC']],
   ['fabric-1.8.9', ['scripts/build-1132.mjs', '1.8.9', '--instance', 'V1.8.9-FABRIC', '--mcrange', '>=1.8 <1.9']],
   ['fabric-1.9.4', ['scripts/build-1132.mjs', '1.9.4', '--instance', 'V1.9.4-FABRIC']],

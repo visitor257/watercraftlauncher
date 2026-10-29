@@ -15,6 +15,14 @@ import net.minecraft.world.World;
  */
 public class McVerItem extends Item {
 
+    /**
+     * 1.7 的物品贴图靠 {@code setTextureName}（protected，只能子类调），
+     * 不给就会变成 {@code MISSING_ICON_ITEM_4000_null.png} 的紫黑格。
+     */
+    public McVerItem() {
+        this.setTextureName("mcver:download_tool");
+    }
+
     @Override
     public ItemStack onStartUse(ItemStack heldStack, World world, PlayerEntity player) {
         if (world.isClient) {
