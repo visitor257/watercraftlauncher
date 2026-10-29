@@ -10,7 +10,8 @@
 **mod 本体 49 个 jar（Fabric/Legacy Fabric 25 / Forge 19 / NeoForge 5）** ——
 本轮把 **1.7 全系**铺完了（1.7 / 1.7.1 ~ 1.7.8 / 1.7.10，9 个新 jar，逐个像素验收 PASS），
 **并硬干掉了 Forge 1.7.2**（上游 FML 7.2 在 Java 8 上必崩，靠安装时打的一处字节码补丁绕过）；
-三个加载器实机真右键全 PASS；`dist/` 已全量重编（41 步）。
+**又把老 Forge 全家的「右键 / 配方 / 图标」补齐**（用户 1.12.2 实测报的三个问题，7 个 target 一次修完）；
+`dist/` 已全量重编（41 步）。
 做不了的：Fabric **1.7.9**（上游没 yarn + loader 报 `Unfixable conflicts`）、
 Forge 1.13.2（无 mojmap）、Forge/NeoForge 26.1（class 69 / Java 25）、≤1.6.4（没加载器）。
 

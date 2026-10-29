@@ -2223,3 +2223,78 @@ ok: true, center: C6C6C6, hits: 14952, children: 17, size: 870x519
    asm 该用哪个版本、排序该怎么写，都是从 1.7.10 的字节码里抄来的。
 4. 常量池里 `Methodref` 存的是 **NameAndType 下标**，不是名字/描述符 —— 第一版就是这么写错、
    静默返回 null（"结构不匹配"），第二版才修对。**patch 失败要能说出失败在哪一步**，不然只能盲猜。
+
+## 36. 2026-10-29（第十八轮）：老 Forge 全家的「右键 / 配方 / 图标」三连
+
+用户在 1.12.2 上试，报了三件事：**右键物品打不开启动器**、**水桶合不出启动器物品**、
+**启动器物品的图标（水）没了**。三件事都是真的缺失，而且不止 1.12.2 —— 整个老 Forge 家族都缺。
+
+### 36.1 三个缺口分别是什么
+
+| 症状 | 根因 | 影响范围 |
+| --- | --- | --- |
+| 右键没反应 | 老 target 一律 `new Item()`（1.7.x 只是为了能调 `setTextureName` 才写了个内部类），**根本没有右键钩子** | 1.7.2 ~ 1.12.2 全部 |
+| 图标没了 | `ModelLoader.setCustomModelResourceLocation` 只在 1.8.9/1.9.4/1.10.2 里调了，**1.11.2 / 1.12.2 漏了** → missing model 紫黑块 | 1.11.2、1.12.2 |
+| 合不出来 | **1.13 以下没有任何配方**；1.12.2 的 JSON 配方目录 `assets/mcver/recipes/` 也没建 | ≤1.12.2 全部 |
+
+顺带确认：Fabric 1.12.2 的 `method_13649` 名称是对的（`TypedActionResult<ItemStack> method_13649(World, PlayerEntity, Hand)`，
+`javap` 核过 `client-1.12.2-named.jar`），所以「右键打不开」只可能是 Forge 那边。
+
+### 36.2 右键：每一代的签名都不一样
+
+`@Override` 能编过就等于「签名跟原版一模一样」（javac 拿 SRG jar 校验），所以这是硬证据：
+
+| 版本 | 钩子 |
+| --- | --- |
+| 1.7.2 / 1.7.10 / 1.8.9 | `ItemStack func_77659_a(ItemStack, World, EntityPlayer)` |
+| 1.9.4 / 1.10.2 | `ActionResult<ItemStack> func_77659_a(ItemStack, World, EntityPlayer, EnumHand)` |
+| 1.11.2 / 1.12.2 | `ActionResult<ItemStack> func_77659_a(World, EntityPlayer, EnumHand)` |
+
+**这里顺手避开一个大坑**：1.20 上我们得用 `isPressed()` 边沿检测，因为原版
+`handleInputEvents` 里的 `while (keyUse.wasPressed())` 会把按键计数吃干净。
+而 `onItemRightClick` 是**原版主动调用**的，不经过 keybinding —— 老版本不需要任何 workaround。
+返回值直接 `return super...`（父类给的是 PASS + 原栈），省得去写 `EnumActionResult.field_xxxxx` 这种 SRG 字段名。
+
+### 36.3 配方：1.12 是分水岭
+
+- **1.12.2**：JSON 配方在 `assets/<modid>/recipes/`（不是 1.13+ 的 `data/<modid>/recipes/`）。
+- **≤1.11.2**：没有 JSON 配方，只能 `GameRegistry.addShapelessRecipe(new ItemStack(item), Items.field_151131_as)`。
+
+**别拿「调用过注册函数」当成功**：代码登记的那几个 target，注册完会扫一遍
+`CraftingManager.func_77594_a().func_77592_b()`，看有没有哪条配方的产物是我们的物品，把结果打进日志；
+1.12.2 则等资源重载完（标题界面）用 `CraftingManager.func_193373_a(new ResourceLocation("mcver","download_tool"))`
+按 id 反查。日志形如 `mcver: recipe download_tool=true`。
+
+### 36.4 日志标记必须是 ASCII
+
+这批老版本日志文件是 GBK，外部探针按 UTF-8 读 → 中文全是 `????`，**永远匹配不上**。
+所以验收用的三行一律 ASCII 打头、中文放括号里：
+`mcver: right-click open（右键打开启动器）` / `mcver: recipe download_tool=` / `mcver: model registered`。
+（`verify-rightclick.mjs` 里那条中文标记继续有效，因为现代版本的日志是 UTF-8。）
+
+### 36.5 验收
+
+`scripts/verify-legacy-forge.mjs` —— 逐个起游戏、等自定义标记、再回头核日志里
+「model registered 存在」且「没有 `Unable to load model` / `Using missing texture`」：
+
+```
+PASS 1.12.2 / 1.11.2 / 1.10.2 / 1.9.4 / 1.8.9 / 1.7.10 / 1.7.2     7 PASS / 0 FAIL
+```
+
+**还差一步没法自动化**：这些版本都没有 `--quickPlaySingleplayer`，探针进不了世界，
+所以「真右键」只能人工确认（我会问用户）。补丁的正确性有两条硬证据兜底：
+`@Override` 编过（签名与 SRG 原版一致）+ 同一个钩子在 Fabric 1.12.2 上一直是可用的。
+
+### 36.6 踩到的两个自伤
+
+1. **`s.replace` 的锚点没命中，方法生成了但没人调用** —— 编译通过、日志却没有那两行。
+   教训：批量改源码后要**断言调用点存在**，不能只断言方法体存在。
+2. **插代码拿「行尾」当锚点，结果插进了构造器里面**（javac 报 `';' expected`）。
+   教训：插成员要按**大括号层级**找位置，不是找字符串。
+
+### 36.7 还没做的（Fabric ≤1.13.2）
+
+Fabric 侧的图标/配方问题不是一个补丁能解决的：**Legacy Fabric loader 根本不挂载 mod 的 `assets/`**
+（日志里 `Reloading ResourceManager: Default` 后面没有 `ModResourcePack`，Forge 那边就有
+`FMLFileResourcePack: Water Craft Launcher`）。要修得依赖 `fabric-resource-loader-v0`（Fabric API 的模块），
+等于给 mod 加一个硬依赖。待定，看用户用不用 Fabric 老版本。
