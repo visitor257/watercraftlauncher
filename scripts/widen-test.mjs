@@ -9,7 +9,7 @@ const work = 'D:/Development/watercraftlauncher/testgame/work/jar121';
 fs.rmSync(work, { recursive: true, force: true });
 fs.mkdirSync(work, { recursive: true });
 
-execFileSync('C:/Program Files/Java/jdk-21.0.7/bin/jar', ['xf', jar], { cwd: work });
+execFileSync('D:/Program Files/Java/jdk-21.0.7/bin/jar', ['xf', jar], { cwd: work });
 
 const fmPath = path.join(work, 'fabric.mod.json');
 const fm = JSON.parse(fs.readFileSync(fmPath, 'utf8'));
@@ -19,5 +19,5 @@ fs.writeFileSync(fmPath, JSON.stringify(fm, null, 2), 'utf8');
 console.log('新区间:', fm.depends.minecraft);
 
 const out = 'D:/Development/watercraftlauncher/testgame/work/wcl-1.21.jar';
-execFileSync('C:/Program Files/Java/jdk-21.0.7/bin/jar', ['cfM', out, '-C', work, '.'], { stdio: 'inherit' });
+execFileSync('D:/Program Files/Java/jdk-21.0.7/bin/jar', ['cfM', out, '-C', work, '.'], { stdio: 'inherit' });
 console.log('产物:', out, fs.statSync(out).size, 'bytes');

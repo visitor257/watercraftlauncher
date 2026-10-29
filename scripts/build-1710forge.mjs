@@ -19,7 +19,7 @@ const MC = '1.7.10';
 const FORGE = '10.13.4.1614';
 const INSTANCE = `${MC}-Forge${FORGE}-${MC}`;
 const W = join(MODX, 'build', `forge-${MC}`);
-const JAVA_HOME = process.env.JAVA_HOME || 'C:/Program Files/Java/jdk-21.0.7';
+const JAVA_HOME = process.env.JAVA_HOME || 'D:/Program Files/Java/jdk-21.0.7';
 const javac = join(JAVA_HOME, 'bin', 'javac.exe');
 const jarExe = join(JAVA_HOME, 'bin', 'jar.exe');
 

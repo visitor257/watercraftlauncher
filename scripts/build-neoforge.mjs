@@ -570,7 +570,7 @@ writeFileSync(argFile, [
 ].join('\n'), 'utf8');
 
 // 26.1 的 MC 类文件是版本 69（Java 25），JDK 21 的 javac 连读都读不了 → 允许按 target 换 JDK。
-const JDK_HOME = T.jdk ? join(ROOT, T.jdk) : (process.env.JAVA_HOME || 'C:/Program Files/Java/jdk-21.0.7');
+const JDK_HOME = T.jdk ? join(ROOT, T.jdk) : (process.env.JAVA_HOME || 'D:/Program Files/Java/jdk-21.0.7');
 const javac = join(JDK_HOME, 'bin', 'javac.exe');
 try {
   execFileSync(javac, ['@' + argFile], { stdio: 'inherit' });

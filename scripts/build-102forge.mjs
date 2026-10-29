@@ -17,7 +17,7 @@ const ROOT = resolve(import.meta.dirname, '..');
 const GAME = join(ROOT, 'testgame');
 const MODX = join(ROOT, 'modx');
 const W = join(MODX, 'build', 'forge-1.10.2');
-const JAVA_HOME = process.env.JAVA_HOME || 'C:/Program Files/Java/jdk-21.0.7';
+const JAVA_HOME = process.env.JAVA_HOME || 'D:/Program Files/Java/jdk-21.0.7';
 const javac = join(JAVA_HOME, 'bin', 'javac.exe');
 const jarExe = join(JAVA_HOME, 'bin', 'jar.exe');
 

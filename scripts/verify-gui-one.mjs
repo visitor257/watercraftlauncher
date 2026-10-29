@@ -61,7 +61,7 @@ try { execFileSync('powershell', ['-NoProfile', '-Command', 'Get-Process java -E
 const t0 = Date.now() - 5000;
 const holdLog = join(LOGS, `hold-${instance}.log`);
 const out = openSync(holdLog, 'w');
-const javaExe = join(process.env.JAVA_HOME || 'C:/Program Files/Java/jdk-21.0.7', 'bin', 'java.exe');
+const javaExe = join(process.env.JAVA_HOME || 'D:/Program Files/Java/jdk-21.0.7', 'bin', 'java.exe');
 const probe = spawn(javaExe, [
   '-cp', join(ROOT, 'tools', 'probe', 'out'),
   'dev.mcver.probe.ProbeLaunch', 'testgame', instance, String(TIMEOUT), 'ZZNEVERZZ',

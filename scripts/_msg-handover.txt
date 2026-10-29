@@ -1,0 +1,35 @@
+docs(handover): rewrite for the 49-jar / 4-pipeline reality; make the toolchain portable
+
+The old HANDOVER.md was written on 2026-10-23, when this was a single Fabric 1.21.4
+mod built with Gradle. Everything in it about builds, targets and verification is now
+wrong, and handing that to a fresh machine would waste a day.
+
+Rewritten from scratch around what the project actually is now:
+
+- Two ways to move: copy the 13 GB tree (testgame/ and modx/srg/ are gitignored but
+  three of the four build pipelines compile against them) or clone and rebuild them
+  from scratch.
+- Environment table with the real constraints: PowerShell 5.1 (not pwsh 7), Node >=
+  20.11 for import.meta.dirname, JDK 21, optional JRE 8, and the four separate build
+  pipelines that people keep confusing (Gradle/loom, tiny-remapper, mojmap+reobf,
+  SRG shims).
+- A "not in git but required" table, because that is the single most likely way to
+  get stuck: testgame/ (10.5 GB), modx/srg/ (426 MB), modx/legacy/ (278 MB).
+- The pitfall catalogue, condensed by domain (build pipelines / runtime / the seven
+  ways the verification scripts lied to us / Windows toolchain / bulk source edits).
+- Explicitly-impossible list, so nobody re-litigates Fabric 1.7.9 or Forge 1.13.2.
+
+Also added scripts/portable-jdk.mjs, because the handover's own first instruction
+("fix the hardcoded Java paths") is otherwise a 20-file manual search:
+
+  node scripts/portable-jdk.mjs            # report only
+  node scripts/portable-jdk.mjs --write    # apply
+
+It resolves JDK 17+/JRE 1.8 by actually running -version against every drive's
+Program Files (java -version writes to stderr and exits 0, so execFileSync returns an
+empty string and silently reports "no version" -- spawnSync is required), then rewrites
+the absolute paths in scripts/*.{mjs,ps1} preserving each file's slash style.
+
+Running --write on this machine normalised seven C:/ fallbacks to the real D: path.
+Verified with a full node scripts/rebuild-all.mjs: 41/41 OK, publish 24 jars, dist back
+to 49.
