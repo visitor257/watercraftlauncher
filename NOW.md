@@ -50,6 +50,19 @@
   （创造 + 允许作弊 + 可选 `--dv` 压 DataVersion）。
 - 新 `scripts/clone-world.mjs`：克隆现成存档到别的实例，顺手改 `DataVersion` / 版本名 / 游戏模式。
 
+## 1.5 本轮又修了一个 UX 真 bug：下载页选分类要按两次
+
+用户说「选了分类还得按刷新才显示」。根因：`initList()` 渲染前**从不重算 `shown`**，
+`shown` 只在清单加载完成 / 「刷新」按钮（强重拉）时才更新 → 点页签只改了 `cat`，列表还是旧的。
+**搜索框同一个坑**（改 query → rebuild，一样不生效）。
+修法就一行：`initList()` 里渲染前 `if (!all.isEmpty()) recompute();`（纯本地过滤，不联网）。
+
+新验收工具 `scripts/verify-download-tab.mjs <实例> --tab 快照`：真起游戏 → 自动开下载页 →
+从日志里的布局行（`mcver: layout tabs@102,60,70,15,4`）算坐标 → 真鼠标点一下 →
+只认点击**之后**新出现的 `mcver: 分类=X 共=N 个`。
+**做了反例对照**：注释掉修复后点页签 → FAIL（layout 行出现两次但 分类 行不更新）；
+恢复后 PASS（快照 748 / 愚人节 9）。
+
 ---
 
 ## 2. 验证现状（诚实版）
@@ -79,6 +92,9 @@ node scripts/put-mod.mjs 1.21.4-forge-54.1.22 watercraftlauncher-forge-1.0.0-mc1
 
 # 造探针用的存档（服务端生成 + 改 level.dat）
 node scripts/mk-world.mjs --mc 1.20.1 --name flat120 --save-into fabric-loader-0.20.1-1.20
+
+# 下载页「点页签自动刷新」验收（真鼠标点）
+node scripts/verify-download-tab.mjs V1.21.4-FABRIC --tab 快照
 
 # 界面像素验收（走自检钩子，只证明渲染）
 node scripts/verify-gui-one.mjs 1.21.4-forge-54.1.22 --timeout 240
@@ -113,4 +129,6 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts\build-probe.ps1
 - **参数文件按「读者」的编码写**：JVM `@argfile` 是 `sun.jnu.encoding`，不是 `file.encoding`。
 - **静默失败造对照组**：换 ASCII 名字能过 → 立刻定位编码问题。
 - **验收工具自己也会骗人**：截图断言要删旧图；残留进程会攥着 `session.lock`；
-  单机失焦会暂停（`pauseOnLostFocus:false`）；`PostMessage` 在 1.20 上根本不生效，得用驱动级 `keybd_event`。
+  单机失焦会暂停（`pauseOnLostFocus:false`）；`PostMessage` 在 1.20 上根本不生效，得用驱动级 `keybd_event`；
+  GUI 点按要用 `GetClientRect`+`ClientToScreen` 换算（`GetWindowRect` 含标题栏，差十几像素就点空）。
+- **改完交互先造反例**：注释掉修复 → 探针应该 FAIL，恢复 → PASS。没反例的 PASS 可能是探针自己在骗人。

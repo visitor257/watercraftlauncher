@@ -177,6 +177,19 @@ public class DownloadPage extends Page {
             }).dimensions(x + i * (cw + 3), catTop(), cw, 15).build());
         }
 
+        // 给「点页签」类验收脚本用的几何信息（GUI 坐标，不含窗口缩放）：
+        // 探针从日志里拿 gui=WxH 和这几个数，换算成屏幕坐标后真点一下 —— 这样验收脚本
+        // 不用复制一份布局算式，界面改了也不会悄悄失准。每次重建列表面板只打一行。
+        McVerMod.LOGGER.info(String.format(java.util.Locale.ROOT,
+                "mcver: layout tabs@%d,%d,%d,%d,%d search@%d,%d,%d,%d",
+                x, catTop(), cw, 15, VersionList.CAT_LABELS.length,
+                x, host.contentY() + 1, w, 16));
+
+        // 分类/搜索一改就该立刻出结果 —— recompute() 只做本地过滤（清单已经全在 all 里），
+        // 不需要重新联网。以前只在加载完成时才调，所以点完页签列表还是上一个分类的内容，
+        // 用户必须先按「刷新」才看到变化。
+        if (!all.isEmpty()) recompute();
+
         startVersionLoad();
         int rows = listRows();
         int from = page * rows;

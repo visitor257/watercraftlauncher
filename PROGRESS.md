@@ -1842,3 +1842,73 @@ UseItemCallback.EVENT.register((player, world, hand) -> {
 要验得驱动 GUI：标题界面 → 单人 → 存档列表 → 进入（窗口尺寸要固定、按钮坐标要算）。
 代码上它们走物品自带的 `onItemRightClick` / `method_13649` / `method_11373` / `onStartUse`，
 **不依赖按键状态**，风险与 Fabric ≤1.20 同级（已实测后者），暂按低风险评估。
+
+## 32. 2026-10-29（第十四轮）：下载页选分类必须按「刷新」才生效 —— UX 真 bug
+
+用户实测：下载页四个分类页签（正式 / 快照 / 远古 / 愚人节）**点了之后列表不变**，
+必须再按一下「刷新」才显示对应分类。
+
+### 32.1 根因：`initList()` 从不重算列表
+
+```java
+// 点页签
+add(Btn.builder(Txt.of(label), b -> { cat = c; page = 0; rebuild(); }) ...);
+
+private void initList() {
+    ...
+    startVersionLoad();     // versionsRequested=true 时直接 return
+    int rows = listRows();
+    int to = Math.min(shown.size(), from + rows);   // ← 用的是旧的 shown
+```
+
+`shown` 只在三处更新：清单加载完成的回调（`recompute()`）、翻页前的 clamp、以及「刷新」按钮
+（它先 `versionsRequested = false` 强制重拉清单，重拉完才 `recompute()`）。
+页签点击只改了 `cat` 就 `rebuild()`，**没有任何一处重新过滤 `shown`** → 列表画出来的还是上一个分类。
+
+同一个坑还影响**搜索框**：`setChangedListener` 也是「改 query → rebuild」，输入后同样不生效。
+
+**修法**：`initList()` 里渲染前先本地过滤一次。
+
+```java
+if (!all.isEmpty()) recompute();   // 纯本地过滤，不联网
+```
+
+`recompute()` 只干 `VersionList.filter(all, query, cat)` + 页码收敛，不碰网络，
+所以点页签/打字都不会再触发一次清单下载（清单还是由 `startVersionLoad()` 管）。
+
+### 32.2 新验收工具：`ProbeGuiClick` + `verify-download-tab.mjs`
+
+「点一下有没有反应」必须真点，不能靠 children/像素。做法：
+
+1. mod 在列表面板重建时多打一行**布局信息**（GUI 坐标）：
+   `mcver: layout tabs@102,60,70,15,4 search@102,41,291,16`
+   —— 验收脚本因此不用复制一份布局算式，界面改了也不会悄悄失准。
+2. `ProbeGuiClick` 从日志里取 `gui=WxH` 和这行，用 `GetClientRect` + `ClientToScreen`
+   把 GUI 坐标换算成屏幕坐标（`scale = 客户区宽 / guiW`，**不是** `GetWindowRect` —— 那个含标题栏，
+   差十来个像素就点空）。
+3. `SetCursorPos` + `mouse_event(LEFTDOWN/UP)` 真点，连点两次（窗口刚激活时第一次可能被系统吃掉）。
+4. **判据**：只认点击**之后**新冒出来的 `mcver: 分类=X 共=N 个`，并且分类名要对、数量要 > 0。
+
+```bash
+node scripts/verify-download-tab.mjs V1.21.4-FABRIC --tab 快照
+node scripts/verify-download-tab.mjs V1.21.4-FABRIC --tab 愚人节
+node scripts/verify-download-tab.mjs V1.21.4-FABRIC --tab 快照     # 反例：临时注释掉修复后应 FAIL
+```
+
+### 32.3 反例对照（这次做了）
+
+把 `if (!all.isEmpty()) recompute();` 注释掉重编，再跑同一个探针：
+
+| 版本 | 结果 |
+| --- | --- |
+| 无修复 | **FAIL**：点击后 `layout` 行出现两次（说明 rebuild 真跑了），但 `分类=` 行一条新的都没有 |
+| 有修复 | **PASS**：`分类=快照 共=748 个`（1.0s）、`分类=愚人节 共=9 个`（1.0s） |
+
+有反例才敢说「探针抓得住这个 bug」，也才敢说修复真的生效。
+
+### 32.4 其他
+
+- `SetForegroundWindow` 会静默失败（前台锁），探针改成 `AttachThreadInput` + `BringWindowToTop`
+  再抢一次，并打印 `foreground=… target=…` 核对。
+- 探针要等清单加载完（至少一条 `分类=` 日志）才点，否则「加载完成那次 recompute」会冒充成点击结果
+  —— 第一版就是这么假 FAIL 的。
