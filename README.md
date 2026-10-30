@@ -292,10 +292,44 @@ scope 用 `service::user.auth.xboxlive.com::MBI_SSL`，换来的 MSA token 在 X
 
 ## 构建
 
+前提：**JDK 21**（`JAVA_HOME` 指向它）+ **Gradle 8.x**（实测 8.14.2）。构建脚本零 npm 依赖，
+但 `scripts/*.mjs` 需要 **Node ≥ 20.11**。
+
+### 只编 Fabric 现代版（clone 下来最快能跑的一条）
+
 ```powershell
-cd D:\Development\mcvermod\mod
-$env:JAVA_HOME="D:\Program Files\Java\jdk-21.0.7"
-..\.tools\gradle-8.12\bin\gradle.bat build
+cd mod
+.\gradlew.bat build        # 默认 target 是 1.21.4，产物在 build\libs\
+```
+
+wrapper 首次会下载 Gradle（约 130 MB，需要能访问 `services.gradle.org`）。
+如果连不上（国内常见），自己装一个 Gradle 8.x 再走脚本：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts\build-all.ps1              # 9 个 Fabric target
+powershell -ExecutionPolicy Bypass -File scripts\build-all.ps1 -Only 1.21,1.20
+```
+
+脚本按这个顺序找 Gradle：`-Gradle` 参数 → `GRADLE_HOME` → `.tools\gradle-8.12` → `PATH`
+→ `~\.gradle\wrapper\dists\gradle-8.*`（多个取最高）。
+
+### 要编全部 49 个 jar
+
+Gradle 只覆盖 Fabric 1.14~1.21 那 9 个；其余 40 个走另外三条手写管线
+（tiny-remapper / mojmap+reobf / SRG 垫片），它们依赖两个**不在仓库里**的东西：
+
+| 缺的 | 用来干什么 |
+| --- | --- |
+| `testgame/libraries` | 管线 C/D 的编译期 classpath（forge client jar 等） |
+| `modx/srg`、`modx/legacy` | 映射中间产物（srg 名 jar / yarn named jar） |
+
+顺序不能反（映射脚本自己也要读 `testgame/libraries`），完整步骤见 `HANDOVER.md` §1.2：
+
+```powershell
+# 1) 用任意启动器（官方 / HMCL / PCL）把需要的 MC 版本装进 testgame/
+node scripts\mk-legacy-named.mjs     # 2) -> modx/legacy
+node scripts\mk-srg-mojmap.mjs       # 3) -> modx/srg
+node scripts\rebuild-all.mjs         # 4) 41 步，约 10 分钟
 ```
 
 ## 调试钩子
