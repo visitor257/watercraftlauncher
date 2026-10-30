@@ -88,3 +88,6 @@ tools/probe/out-runner/
 REPORT.md
 NOW.md
 spike/
+
+# ---- third-party mapping data (downloaded by mk-legacy-named.mjs, never published)
+modx/legacy/
