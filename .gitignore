@@ -77,3 +77,9 @@ testgame122/
 # ---- downloaded toolchain artifacts (reproducible)
 testlib/libraries/
 spike/lf-yarn/
+
+# ---- compiled probe output / backups / compiler argfiles (regenerated or stale)
+tools/probe/out-alt/
+tools/probe/out-runner/
+*.bak-*
+*.args
