@@ -83,3 +83,8 @@ tools/probe/out-alt/
 tools/probe/out-runner/
 *.bak-*
 *.args
+
+# ---- local dev logs / one-off experiments (kept on disk, never published)
+REPORT.md
+NOW.md
+spike/

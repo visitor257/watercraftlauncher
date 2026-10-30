@@ -1,6 +1,6 @@
 # 进展报告：截至 2026-10-26
 
-> 计划书：`PLAN.md` · 坑位手册：`HANDOVER.md` · 开发流水账：`REPORT.md`
+> 计划书：`PLAN.md` · 坑位手册：`HANDOVER.md`
 > 验证矩阵（原始记录）：`VERIFY.md` + `verification/results.csv`
 > 本报告 = 提炼层：**能宣称什么、不能宣称什么、下一步干什么**。
 
@@ -400,7 +400,7 @@ Java 8 兼容做完之后，1.12.2 剩的是「老 UI API」。但在动 UI 之�
 缺的是 `DrawContext`/`MatrixStack`（立即模式 GL）、`Registries`/`RegistryKey`（→ `Item.REGISTRY.put`）、
 `ItemGroup`（包名不同）、`ClickableWidget`（→ `Screen.buttonClicked` 分派）、`MutableText`（→ `LiteralText`）。
 spike 里写了个覆盖这些点的类，在 **loom 1.11.8 + legacy-looming 1.11.8 + `--release 8`** 下编译 + remapJar 都成功。
-结论：**是「多一个 compat 目标 + 一个独立 gradle 工程」，不是重写**。细节见 `spike/lf122/VERDICT.md`。
+结论：**是「多一个 compat 目标 + 一个独立 gradle 工程」，不是重写**。当时的验证工程（`spike/lf122/`）只在本机保留，不入库。
 
 **硬约束**：loom 1.16 要求 Gradle 9.x（本仓库 8.14.2）；而 Legacy Fabric API 聚合包 `1.13.5+1.12.2`
 是用 loom 1.15.3 打的，装进 loom 1.11.8 会报 `Mod was built with a newer version of Loom`。

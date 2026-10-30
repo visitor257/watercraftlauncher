@@ -403,11 +403,11 @@ Fabric 1.7.9、Forge 1.13.2、Forge/NeoForge 26.1、MC ≤1.6.4、Legacy Fabric 
 Fabric ≤1.13.2 的物品图标/配方要不要加 `fabric-resource-loader-v0` 硬依赖（影响是否能「只装 loader 就能用」）。
 
 **技术债**
-- `PROGRESS.md` 已 144 KB、36 节，`REPORT.md` 93 KB。新结论应该进 `PROGRESS.md`，
-  `REPORT.md` 只当历史流水账，别再往里堆。
+- `PROGRESS.md` 已 150 KB、37 节。新结论一律进 `PROGRESS.md`。
 - `scripts/` 里 30+ 个一次性迁移脚本（`_*.mjs`、`fix-*.mjs`）没清理。它们记录了当时的改法，
   但现在跑会乱改文件。**只在看懂用途后才用**。
-- `testgame122/` 本该进 `.gitignore`，现在有一部分 assets 进了库（138 MB 的仓库里大部分是它）。
+- `testgame122/` 曾经有一部分 assets 进了库（132 MB）。2026-10-30 已从全部历史里剔除并写进
+  `.gitignore`；远端仓库只剩源码。`REPORT.md` / `NOW.md` 也是本机开发流水账，同样不再入库。
 
 ---
 
@@ -430,12 +430,12 @@ Fabric ≤1.13.2 的物品图标/配方要不要加 `fabric-resource-loader-v0` 
 | --- | --- |
 | 怎么在另一台机器上跑起来、代码怎么组织、有哪些坑 | **本文** |
 | 现在支持什么、证据是什么 | `PROGRESS.md` §1 / `verification/results.csv` |
-| 某个 bug 当初怎么查出来的 | `PROGRESS.md` §2~§36（按轮次） |
+| 某个 bug 当初怎么查出来的 | `PROGRESS.md` §2~§37（按轮次） |
 | 「支持」到底是什么标准（L0~L3） | `PLAN.md` |
 | 验证矩阵怎么跑、哪些组合验过 | `VERIFY.md` |
 | 功能说明（给用户看） | `README.md` |
-| 原始流水账 | `REPORT.md`（历史，别再往后堆） |
-| 当前这一轮在干什么 | `NOW.md` |
+
+> 开发过程中的流水账（`REPORT.md`、`NOW.md`、`spike/`）只在本机保留，不入库。
 
 ---
 

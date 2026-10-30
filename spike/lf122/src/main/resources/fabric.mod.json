@@ -1,9 +1,0 @@
-{
-  "schemaVersion": 1,
-  "id": "spike122",
-  "version": "1.0.0",
-  "name": "Spike 1.12.2",
-  "environment": "*",
-  "entrypoints": { "client": [ "dev.example.SpikeScreen" ] },
-  "depends": { "fabricloader": ">=0.14.0", "minecraft": "1.12.2" }
-}
