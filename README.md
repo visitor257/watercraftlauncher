@@ -319,3 +319,23 @@ $env:JAVA_HOME="D:\Program Files\Java\jdk-21.0.7"
 
 安装过程会同时写 `run/mcver-install.log`（带时间戳），关掉界面也能从外面看进度。
 每次面板 init 会往 `run/mcver-debug.txt` 追加一行（tab / GUI 尺寸 / 面板几何 / 控件数）。
+
+## 许可
+
+[MIT](LICENSE) © 2026 visitor257
+
+## 仓库里没有什么
+
+这个仓库只放**源码**（mod 源码、`compat/`/`modx/` 差异层、`scripts/` 构建与验收脚本、文档）。
+下面这些都不在库里，需要按 `HANDOVER.md` 自己重建：
+
+| 不在库里 | 为什么 |
+| --- | --- |
+| `testgame/`、`testgame122/` | Minecraft 游戏目录（assets/libraries，GB 级，且含 Mojang 版权资源） |
+| `dist/`、`*.jar` | 构建产物，发版走 Releases |
+| `modx/srg/`、`modx/legacy/` | 映射管线生成的中间产物（400+ MB，可重跑） |
+| `config/mcver.json` | 本机配置：游戏目录与**账号 token**，永远不入库 |
+| `logs/`、`*.log` | 构建/运行日志 |
+
+> 所以 clone 下来直接编译是**编不动**的 —— 先看 `HANDOVER.md` 第 1 节（换机器两条路）
+> 和第 5 节（哪些目录不在 git 里、缺了会怎样）。

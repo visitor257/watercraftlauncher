@@ -71,3 +71,9 @@ modx/legacy/*/work/
 
 # ---- SRG 管线的中间产物（mojmap jar / 映射 / 下载的 Mojang 映射文本，可重跑生成）
 modx/srg/
+
+# ---- 1.12.2 test game dir: 132 MB of MC assets/libraries, not source, don't publish
+testgame122/
+# ---- downloaded toolchain artifacts (reproducible)
+testlib/libraries/
+spike/lf-yarn/
