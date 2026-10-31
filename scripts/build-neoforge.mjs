@@ -39,7 +39,11 @@ const TARGETS = {
     packFormat: 34,
     // 依赖声明：[modId, versionRange]
     loaderDep: ['neoforge', '[21.1.0,)'],
-    mcRange: '[1.21.1,1.22)',
+    // 只能声明到 1.21.2 之前：MC 1.21.2 起 Item.Properties 必须显式 setId，
+    // 不设就在注册时 NPE「Item id not set」。本 target 的 overlay（neoforge21）没调 setId
+    // （1.21.1 的 Item.Properties 根本没这个方法），所以往上揽 = 一装就崩。
+    // 2026-10-31 实测：1.21.3 + NeoForge 21.3.100 崩在 Item.<init>。
+    mcRange: '[1.21.1,1.21.2)',
     sources: ['mod/src/main/java'],
     overlay: ['shims21/java', 'neoforge21/java'],
     resources: ['mod/src/main/resources'],
@@ -277,7 +281,9 @@ const TARGETS = {
     loaderRange: '[24,)',
     packFormat: 34,
     loaderDep: ['forge', '[52,)'],
-    mcRange: '[1.21.1,1.22)',
+    // 同 neoforge-21.1：overlay（forge21）没调 setId，1.21.2+ 会 NPE「Item id not set」，
+    // 所以不能声明成 [1.21.1,1.22)。要盖 1.21.2/1.21.3 得另开 target（用 forge214 那种 setId 写法）。
+    mcRange: '[1.21.1,1.21.2)',
     sources: ['mod/src/main/java'],
     overlay: ['shims21/java', 'forge21/java'],
     resources: ['mod/src/main/resources'],
@@ -570,7 +576,7 @@ writeFileSync(argFile, [
 ].join('\n'), 'utf8');
 
 // 26.1 的 MC 类文件是版本 69（Java 25），JDK 21 的 javac 连读都读不了 → 允许按 target 换 JDK。
-const JDK_HOME = T.jdk ? join(ROOT, T.jdk) : (process.env.JAVA_HOME || 'D:/Program Files/Java/jdk-21.0.7');
+const JDK_HOME = T.jdk ? join(ROOT, T.jdk) : (process.env.JAVA_HOME || 'D:/Program Files/Java/jdk-21');
 const javac = join(JDK_HOME, 'bin', 'javac.exe');
 try {
   execFileSync(javac, ['@' + argFile], { stdio: 'inherit' });

@@ -308,6 +308,17 @@ powershell -ExecutionPolicy Bypass -File scripts\verify-matrix.ps1 -Only 1.21.4
 - **字节码补丁优先「转发到静态方法」，不要内联循环**：不加分支就不用重算 `StackMapTable`。
   另外：常量池 `Methodref` 存的是 **NameAndType 下标**；成员头里 `attributes_count` 在 `+6`，
   属性表从 `+8` 才开始。这两条都踩过。
+- **Forge/NeoForge 的 `mcRange` 绝对不要「往上揽」到 `1.22`**（2026-10-31 实测炸过一次）：
+  `forge-21.1` / `neoforge-21.1` 两个 target 原来写 `[1.21.1,1.22)`，但它们的 overlay
+  （`modx/forge21`、`modx/neoforge21`）里建物品是 `new Item(new Item.Properties().stacksTo(1))`，
+  **没调 `setId`** —— 而 **MC 1.21.2 起 `Item.Properties#setId` 是硬性要求**，不设就在
+  `Item.<init>` 里 `NullPointerException: Item id not set`（1.21.3 + NeoForge 21.3.100 实测）。
+  → 已收窄成 `[1.21.1,1.21.2)`。要盖 1.21.2/1.21.3 只能另开 target、用 `modx/*214`
+  那种带 `setId` 的 overlay。
+  **为什么 Fabric 能揽而 Forge/NeoForge 不能**：Fabric 那套按最新版（1.21.11）编译，
+  老版本靠 `try/catch` 吃 `NoSuchMethodError` 退回来；Forge/NeoForge 的源码是
+  **按 target 版本机械转换后再编译**的，target 版本没有的 API 根本编不进去。
+  判断标准：**跨版本差异如果只能「有则调用」，就必须按最新版编；只能按版本编的，就不能跨版本声明。**
 
 ### 6.2 运行期
 
