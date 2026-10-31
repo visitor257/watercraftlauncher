@@ -50,6 +50,7 @@ const TARGETS = {
     jarName: 'watercraftlauncher-neoforge-1.0.0-mc1.21.1',
   },
 
+
   // 1.20.2 ~ 1.20.4（Forge 49/48）：运行时还是 SRG 名（m_/f_），所以走「先 mojmap 编、再 reobf 回 SRG」。
   // 编译用 modx/srg/<mc>/ 里由 scripts/mk-srg-mojmap.mjs 生成的两份 mojmap jar。
   // PoseStack 时代（1.19.4 及更早）：mojmap 里还没有 GuiGraphics，渲染要走 PoseStack。
@@ -194,8 +195,7 @@ const TARGETS = {
     jarName: 'watercraftlauncher-forge-1.0.0-mc1.20.4',
   },
 
-  // ---- SRG 时代（1.20.1 ~ 1.20.4）：先 mojmap 编、再 reobf ----
-  'forge-20.2': {
+  // ---- SRG 时代（1.20.1 ~ 1.20.4）：先 mojmap 编、再 reobf ----  'forge-20.2': {
     mc: '1.20.2',
     java: 17,
     instance: 'V1.20.2-FORGE',
@@ -324,8 +324,12 @@ const TARGETS = {
     modsToml: 'META-INF/neoforge.mods.toml',
     loaderRange: '[4,)',
     packFormat: 46,
-    loaderDep: ['neoforge', '[21.4.0,)'],
-    mcRange: '[1.21.4,1.21.5)',
+    // 从 1.21.3 起盖：2026-10-31 拿这个 jar 的字节码改了声明后，在 1.21.3 + NeoForge 21.3.100
+    // 上实测面板正常（1.21.2 没测，所以不从 1.21.2 起）。
+    // 1.21.2 起 Item.Properties 必须 setId，本 target 的 overlay（neoforge214）已经调了，
+    // 这也是它能往下盖到 1.21.3 而 neoforge-21.1 不能的原因。
+    loaderDep: ['neoforge', '[21.3.0,)'],
+    mcRange: '[1.21.3,1.21.5)',
     sources: ['mod/src/main/java'],
     overlay: ['shims21/java', 'neoforge21/java', 'neoforge214/java'],
     resources: ['mod/src/main/resources'],
