@@ -303,6 +303,10 @@ powershell -ExecutionPolicy Bypass -File scripts\verify-matrix.ps1 -Only 1.21.4
 - **`legacy install_profile` 的 versionInfo 可能不带 `inheritsFrom`**（1.7.2 就没有）→ 原版已存在时 flatten
   不跑，会得到一个「没有客户端 jar」的版本。要按 `install.minecraft` 补。
 - **老的 `asm-all:4.1` 读不了 Java 8 字节码**（major 52）→ legacy profile 抬到 `5.0.3`。
+- **`mcmod.info` 的 `mcversion` 必须和 target 一模一样**（2026-10-31 清出）：
+  `modx/forge172/resources/mcmod.info` 一直写的 `"mcversion": "1.7.10"`（从 forge1710 复制过来的），
+  而产物是给 1.7.2 的 → FML 按这个字段做兼容判定，不匹配就会把 mod 当成不兼容拒载。
+  **教训：版本声明类字段永远是「复制粘贴后忘了改」的重灾区，审计要看产物里实际展开的值，不是看脚本。**
 - **FML 7.2 用 `Opcodes.ASM4` 建 visitor，接口静态方法一律抛异常** → 主源码不许写
   `Comparator.comparingXxx` / `List.of`。检查工具 `modx/lwfix/IfaceCallScan.java`，要求整包 0 处。
 - **字节码补丁优先「转发到静态方法」，不要内联循环**：不加分支就不用重算 `StackMapTable`。
