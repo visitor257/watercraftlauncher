@@ -18,11 +18,11 @@ Minecraft **客户端 mod**（mod id 永远叫 `mcver`，显示名 Water Craft L
 
 | 维度 | 现在的规模 |
 | --- | --- |
-| 产物 jar | **49 个**（Fabric/Legacy Fabric 25 · Forge 19 · NeoForge 5） |
-| 覆盖 MC | **1.7 ~ 26.1**（含快照/远古版的安装） |
-| 源码形态 | 一份主源码 + 20 个 `compat/` 覆盖 + 30 个 `modx/` 垫片目录 |
+| 产物 jar | **85 个**（Fabric/Legacy Fabric 25 · Forge 44 · NeoForge 16） |
+| 覆盖 MC | **1.7 ~ 1.21.11**（含快照/远古版的安装；26.x 不做） |
+| 源码形态 | 一份主源码 + 20 个 `compat/` 覆盖 + 35 个 `modx/` 垫片目录 |
 | 构建管线 | **4 条**（Gradle/loom、tiny-remapper、mojmap+reobf、SRG 垫片），没有一条是「IDE 点一下」 |
-| 验证 | 49 个「版本×加载器」组合到 L2；17 个 target 过像素级界面验收 |
+| 验证 | 49 个「版本×加载器」组合到 L2；**25 个 target 过像素级界面验收**（2026-11-01 新增 23 个里的 21 个，2 个受本机 ModLauncher/JDK 兼容性阻塞） |
 
 **这个项目的真实难度不在写界面，在于「同一份代码要喂给十几个世代的 MC 类名」。**
 接手前先把第 3 节看懂。
@@ -114,7 +114,7 @@ node scripts\rebuild-all.mjs
 
 ## 2. 现在到底有什么
 
-### 2.1 产物矩阵（`dist/`，49 个 jar）
+### 2.1 产物矩阵（`dist/`，85 个 jar）
 
 命名规则：`watercraftlauncher-<loader>-1.0.0-mc<覆盖范围>.jar`。
 **`<覆盖范围>` 写的是 jar 实际能跑的版本区间，不是编译基准**（2026-10-31 改）：
@@ -128,8 +128,8 @@ node scripts\rebuild-all.mjs
 | 加载器 | jar 数 | 覆盖的 mc 后缀 |
 | --- | --- | --- |
 | **Fabric**（含 Legacy Fabric） | 25 | `1.7` `1.7.1`~`1.7.8` `1.7.10` `1.8-1.8.9` `1.9.4` `1.10.2` `1.11.2` `1.12.2` `1.13.2` `1.14-1.14.4` `1.15-1.15.2` `1.16-1.16.5` `1.17-1.17.1` `1.18-1.18.2` `1.19-1.19.2` `1.19.3-1.19.4` `1.20-1.20.6` `1.21-1.21.11` |
-| **Forge** | 19 | 全部是单版本：`1.7.2` `1.7.10` `1.8.9` `1.9.4` `1.10.2` `1.11.2` `1.12.2` `1.14.4` `1.15.2` `1.16.5` `1.17.1` `1.18.2` `1.19.4` `1.20.1` `1.20.2` `1.20.4` `1.20.6` `1.21.1` `1.21.4`（Forge 一个补丁一个 jar，跨不了）|
-| **NeoForge** | 5 | `1.20.2` `1.20.4` `1.20.6` `1.21.1` `1.21.3-1.21.4`（**20.1 直接用 Forge 1.20.1 那个 jar**：它是 Forge 47 换皮，包名仍是 `net.minecraftforge.*`） |
+| **Forge** | 44 | 全部是单版本（一个补丁一个 jar，跨不了）。`1.14` 之后**上游有 Forge 的 37 个版本全覆盖**：`1.14.2` `1.14.3` `1.14.4` `1.15` `1.15.1` `1.15.2` `1.16.1`~`1.16.5` `1.17.1` `1.18` `1.18.1` `1.18.2` `1.19`~`1.19.4` `1.20`~`1.20.4` `1.20.6` `1.21` `1.21.1` `1.21.3`~`1.21.11`；另有 `1.7.2` `1.7.10` `1.8.9` `1.9.4` `1.10.2` `1.11.2` `1.12.2` |
+| **NeoForge** | 16 | `1.20.2`~`1.20.6`（含 20.3/20.5 的 beta）、`1.21` `1.21.1` `1.21.2`(beta) `1.21.3` `1.21.4` `1.21.5` `1.21.6`(beta) `1.21.7`(beta) `1.21.8` `1.21.9`(beta) `1.21.10` `1.21.11` —— **上游存在构建的全覆盖**。`1.20.1` 没有单独 jar：那代 universal 里的 mod id 还是 `forge`，**直接用 Forge 1.20.1 的那个 jar**（实测装上后像素验收通过） |
 
 「一个 jar 盖一个大版本」：`mc1.20-1.20.6.jar` 靠 `fabric.mod.json` 里 `"minecraft": ">=1.20 <1.21"` 盖住 1.20~1.20.6。
 Forge/NeoForge 的 `mods.toml` 同理。
@@ -138,11 +138,13 @@ Forge/NeoForge 的 `mods.toml` 同理。
 
 | 目标 | 为什么 |
 | --- | --- |
+| Forge **1.14** `1.14.1` **1.16** **1.17** **1.20.5** **1.21.2** | **上游根本没有这些版本的 Forge 构建**（2026-11-01 用 Forge maven 的 70 个 MC 版本清单逐个核对过）。玩家在这些版本上只能用 Fabric/NeoForge |
 | Fabric **1.7.9** | `meta.legacyfabric.net` 没有它的 yarn，且 loader 自己报 `tinyremapper: Unfixable conflicts` |
 | Forge **1.13.2** | 那代没有 mojmap 也没有能用的 MCP 映射 |
 | Forge/NeoForge **26.1** | class 69 / Java 25，工具链不支持 |
 | MC **≤1.6.4** | 只剩 Ornithe，不是 Fabric/Forge，另有 loader |
 | Legacy Fabric 的**物品图标/配方** | loader 不挂载 mod 的 `assets/`（资源重载日志里没有 `ModResourcePack`）。要修得加 `fabric-resource-loader-v0` 硬依赖 |
+
 
 ### 2.2 启动器本体（面板里能干什么）
 
@@ -331,6 +333,32 @@ powershell -ExecutionPolicy Bypass -File scripts\verify-matrix.ps1 -Only 1.21.4
   老版本靠 `try/catch` 吃 `NoSuchMethodError` 退回来；Forge/NeoForge 的源码是
   **按 target 版本机械转换后再编译**的，target 版本没有的 API 根本编不进去。
   判断标准：**跨版本差异如果只能「有则调用」，就必须按最新版编；只能按版本编的，就不能跨版本声明。**
+
+- **`mcp_config` 有三种布局**（2026-11-01 补齐 1.14~1.21 时逐个撞出来的）：`*-mappings.tsrg`（1.14.4~1.20.4）、
+  带 `patches/` 的 zip 里 `config/joined.tsrg`（1.20.5）、以及只给 `*-srg2off.jar`（内含 `fields.csv`/`methods.csv`，
+  1.21+）。`mk-srg-mojmap` 现在三种都吃；缺的时候会从 BMCLAPI maven 补下载并重试（镜像偶发 504）。
+- **CSV 时代根本不需要 tsrg**：1.20.5+ 的 srg jar「类名已是官方名、只有成员是 `m_`/`f_`」，一张
+  srg→官方 的名字表就够。工具是 `scripts/java/SrgRename.java`（ASM 按名字表重写 jar），
+  比走 tiny-remapper 快且不依赖 tsrg。
+- **没有官方映射的世代可以「借映射」**：Mojang 从 1.14.4 才开始发 `client_mappings`，但 **srg 名跨补丁版本是稳定的**，
+  而 1.14.x 的 srg jar 类名又是真实包名 → 直接把 1.14.4 的 `srg2mojmap.tiny`/`mojmap2srg.tiny` 套到 1.14.2/1.14.3 上
+  （`mk-srg-mojmap --tinys-from 1.14.4`）。对不上的成员保持 srg 名，编译期会以「找不到符号」暴露。实测 1.14.2/1.14.3 都编过、且像素验收通过。
+- **跳过的类名必须用「remap 之后」的名字**：tiny 的类映射会改类名（`AbstractMinecartEntity` → `AbstractMinecart`），
+  按 remap *前* 的路径去从合并里剔除等于没剔 —— 合并出来的类里会同名两份（`func_174898_m` + `getMaxSpeed`），
+  回头 reobf 直接 `Unfixable conflicts`。做法：用 tiny 的 `c` 行把冲突类翻成目标名再剔。
+- **输入 jar 里可能有同名同签名的两个方法**（非法字节码）：`mcp_config` 某些版本把两个混淆方法写成同一个 srg 名，
+  Forge 打 jar 时烤进去（实测 1.16.2 的 `ServerWorld.func_241122_a_`）。`scripts/java/DedupMethods.java` 在 remap 前清洗。
+  同一张映射表内部的重复目标名也要在生成 tiny 时剔掉，否则 `duplicate method … in inputs`。
+- **Forge 26/27（1.14.2/1.14.3）没有 `DeferredRegister`**（1.14.4/Forge 28 才有），`TickEvent` 也还在
+  `net.minecraftforge.fml.common.gameevent` → 必须用 `RegistryEvent.Register<Item>` + `setRegistryName` 注册（`modx/forge142`）。
+- **NeoForge 各代也不一样**：21.5 **没有**跟着 Forge 换 `BusGroup`（bus 8.0.x 里只有 `IEventBus`），只需补 `Item.Properties.setId`；
+  21.6+ 的 `@EventBusSubscriber` 删掉了 `bus` 属性和 `Bus` 枚举；21.9+ `Window#getWindow()` → `handle()`、`keyPressed(int,int,int)` → `keyPressed(KeyInput)`；
+  21.10+ **不再发 `-client.jar`**（只发 universal，vanilla 类全靠 `client-<mc>-official.jar`）。
+- **NeoForge 20.1 的 mod id 还是 `forge`**：它名字叫 NeoForge，但 universal jar 里 `modId=forge`、FML 47.2.2 →
+  声明 `depends.neoforge` 会被判 `[MISSING]` 拒载。**它就用 Forge 1.20.1 那个 jar**（实测装上像素验收通过），别单独出货。
+- **1.16.3/1.16.4 在本机没法验收**（环境问题，不是 mod）：空实例（不装本 mod）同样崩
+  `NoSuchMethodError: sun.security.util.ManifestEntryVerifier.<init>(Manifest)`（ModLauncher 6.x 与这个 JDK 8u431 不兼容）。
+  换 JDK / ModLauncher 组合再验，别去改 mod。
 
 ### 6.2 运行期
 

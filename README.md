@@ -5,7 +5,7 @@ Fabric 客户端 mod（1.21.4，需 Fabric API）。手里拿着**「Water Craft
 
 物品图标是**流动的水**（原版 `water_flow` 纹理染成水蓝，16×16 不透明）。
 
-产物：`watercraftlauncher-fabric-1.0.0-mc1.21.4.jar`（mod id 还是 `mcver`，显示名是 Water Craft Launcher）
+产物：`watercraftlauncher-fabric-1.0.0-mc1.21-1.21.11.jar`（mod id 还是 `mcver`，显示名是 Water Craft Launcher）。当前共 **85 个 jar**：Fabric 25 / Forge 44 / NeoForge 16，覆盖 MC 1.7 ~ 1.21.11
 
 > 要接手开发（换电脑、搭环境、踩过的坑、调试钩子）看 **`HANDOVER.md`**，别只看这份。
 
@@ -313,9 +313,9 @@ powershell -ExecutionPolicy Bypass -File scripts\build-all.ps1 -Only 1.21,1.20
 脚本按这个顺序找 Gradle：`-Gradle` 参数 → `GRADLE_HOME` → `.tools\gradle-8.12` → `PATH`
 → `~\.gradle\wrapper\dists\gradle-8.*`（多个取最高）。
 
-### 要编全部 49 个 jar
+### 要编全部 85 个 jar
 
-Gradle 只覆盖 Fabric 1.14~1.21 那 9 个；其余 40 个走另外三条手写管线
+Gradle 只覆盖 Fabric 1.14~1.21 那 9 个；其余 76 个走另外三条手写管线
 （tiny-remapper / mojmap+reobf / SRG 垫片），它们依赖两个**不在仓库里**的东西：
 
 | 缺的 | 用来干什么 |
