@@ -20,10 +20,16 @@ if (!wideMc.isEmpty()) {
     if (wp.size() < 2) throw new GradleException("wide_mc 至少要主.次，例：1.21")
 }
 
-// 产物文件名：watercraftlauncher-<loaders>-<version>-mc<minecraft>.jar
+// 产物文件名：watercraftlauncher-<loaders>-<version>-mc<覆盖范围>.jar
 // Gradle 默认会把 version 拼在最后，所以要直接指定 archiveFileName
 // 注意：sourcesJar / remapSourcesJar 是后面才创建的，必须用 lazy 配置
-def mcLabel = wideMc.isEmpty() ? project.minecraft_version : wideMc
+//
+// mc<覆盖范围> 由 build-all.ps1 用 scripts/mc-range-label.mjs 算好传进来（-Pmc_label）。
+// 不传就退回旧行为：宽版写 wide_mc、单版本写 minecraft_version。
+def mcLabel = (project.findProperty("mc_label") ?: "").toString().trim()
+if (mcLabel.isEmpty()) {
+    mcLabel = wideMc.isEmpty() ? project.minecraft_version : wideMc
+}
 def artifactName = "${project.archives_base_name}-${project.mod_loader}-${project.version}-mc${mcLabel}"
 
 tasks.matching { it.name == "jar" || it.name == "remapJar" }.configureEach {

@@ -107,6 +107,22 @@ foreach ($t in $targets) {
     if ($t.wide -ne '' -and $t.wide) { $gargs += "-Pwide_mc=$($t.wide)" }
     if ($t.wideMax) { $gargs += "-Pwide_max=$($t.wideMax)" }
 
+    # 产物名里的 mc<覆盖范围>：把声明区间交给 scripts/mc-range-label.mjs 展开成真实版本，
+    # 例：>=1.21 <1.22 → "1.21-1.21.11"；[1.19,1.19.3) → "1.19-1.19.2"。
+    # 单版本 target（不 wide）不传，build.gradle 会退回写 minecraft_version。
+    if ($t.wide -ne '' -and $t.wide) {
+        if ($t.wideMax) { $range = ">=$($t.wide) <$($t.wideMax)" }
+        else {
+            $wp = $t.wide -split '\.'
+            $range = ">=$($t.wide) <$($wp[0]).$([int]$wp[1] + 1)"
+        }
+        $label = (& node (Join-Path $PSScriptRoot 'mc-range-label.mjs') $range).Trim()
+        if ($LASTEXITCODE -ne 0 -or $label -eq '') { throw "算不出 mc 范围标签：$range" }
+        $gargs += "-Pmc_label=$label"
+    } else {
+        $label = $t.name
+    }
+
     Push-Location $mod
     try {
         & $gradle @gargs
@@ -121,8 +137,8 @@ foreach ($t in $targets) {
         continue
     }
 
-    # 产物名用 target 的 name（1.21 通用 jar 编自 1.21.11，但文件名是 mc1.21）
-    $jar = Get-ChildItem (Join-Path $mod 'build\libs') -Filter "*-mc$($t.name).jar" |
+    # 产物名用 target 的 [mc<覆盖范围>] 标签（1.21 通用 jar 编自 1.21.11，但文件名是 mc1.21-1.21.11）
+    $jar = Get-ChildItem (Join-Path $mod 'build\libs') -Filter "*-mc$label.jar" |
         Sort-Object LastWriteTime -Descending | Select-Object -First 1
     if ($null -eq $jar) {
         Write-Host "  没找到产物 jar" -ForegroundColor Red

@@ -15,6 +15,7 @@ import {
   cpSync, existsSync, mkdirSync, readdirSync, rmSync, statSync, writeFileSync, readFileSync,
 } from 'node:fs';
 import { join, resolve } from 'node:path';
+import { labelFor } from './mc-range-label.mjs';
 
 const ROOT = resolve(import.meta.dirname, '..');
 const LIBS = join(ROOT, 'testgame', 'libraries');
@@ -195,7 +196,8 @@ const TARGETS = {
     jarName: 'watercraftlauncher-forge-1.0.0-mc1.20.4',
   },
 
-  // ---- SRG 时代（1.20.1 ~ 1.20.4）：先 mojmap 编、再 reobf ----  'forge-20.2': {
+  // ---- SRG 时代（1.20.1 ~ 1.20.4）：先 mojmap 编、再 reobf ----
+  'forge-20.2': {
     mc: '1.20.2',
     java: 17,
     instance: 'V1.20.2-FORGE',
@@ -372,6 +374,14 @@ const TARGETS = {
     jarName: 'watercraftlauncher-neoforge-1.0.0-mc1.20.6',
   },
 };
+
+// 产物名里的 mc<覆盖范围>一律由 mcRange 算（2026-10-31 起），不再手写：
+//   [1.21.3,1.21.5) → mc1.21.3-1.21.4 ；[1.20.1,1.20.2) → mc1.20.1
+for (const [key, t] of Object.entries(TARGETS)) {
+  if (!t.mcRange) continue;
+  const loader = key.startsWith('neoforge') ? 'neoforge' : 'forge';
+  t.jarName = `watercraftlauncher-${loader}-1.0.0-mc${labelFor(t.mcRange)}`;
+}
 
 const targetName = process.argv[2];
 const T = TARGETS[targetName];

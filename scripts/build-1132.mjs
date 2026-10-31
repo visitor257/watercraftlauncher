@@ -14,6 +14,7 @@
 import { execFileSync } from 'node:child_process';
 import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { join, relative, resolve } from 'node:path';
+import { labelFor } from './mc-range-label.mjs';
 
 const argv = process.argv.slice(2);
 const MC = argv[0] && !argv[0].startsWith('--') ? argv[0] : '1.13.2';
@@ -26,7 +27,7 @@ const ROOT = resolve(import.meta.dirname, '..');
 const MOD = join(ROOT, 'mod');
 const LEG = join(ROOT, 'modx', 'legacy', MC);
 const W = join(ROOT, 'modx', `build-${MC}`);
-const JDK = 'D:\\Program Files\\Java\\jdk-21.0.7\\bin';
+const JDK = 'D:\\Program Files\\Java\\jdk-21\\bin';
 
 const named = join(LEG, `client-${MC}-named.jar`);
 const yarnTiny = join(LEG, 'work', 'yarn', 'mappings', 'mappings.tiny');
@@ -245,7 +246,7 @@ execFileSync(join(JDK, 'jar.exe'), ['cf', preJar, '-C', classes, '.', '-C', res,
 
 const dist = join(ROOT, 'dist');
 mkdirSync(dist, { recursive: true });
-const outJar = join(dist, `watercraftlauncher-fabric-1.0.0-mc${MC}.jar`);
+const outJar = join(dist, `watercraftlauncher-fabric-1.0.0-mc${labelFor(MC_RANGE)}.jar`);
 rmSync(outJar, { force: true });
 console.log('remap named -> intermediary');
 execFileSync(join(JDK, 'java.exe'), [
