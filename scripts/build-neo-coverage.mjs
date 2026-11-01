@@ -57,12 +57,12 @@ const TARGETS = {
 };
 
 const arg = process.argv[2];
-if (arg === '--list' || !arg) {
+if (arg === '--list') {
   console.log('NeoForge 目标:');
   for (const [mc, t] of Object.entries(TARGETS)) console.log(`  ${mc.padEnd(8)} NeoForge ${t.neo}`);
   process.exit(0);
 }
-const mcs = arg.split(',').map((s) => s.trim()).filter(Boolean);
+const mcs = (arg || Object.keys(TARGETS).join(',')).split(',').map((s) => s.trim()).filter(Boolean);
 
 function log(name, text) { writeFileSync(join(LOGS, name + '.log'), text, 'utf8'); }
 const upperPatch = (mc) => {
