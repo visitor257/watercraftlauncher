@@ -141,13 +141,13 @@ function chainLibs(id, seenIds) {
   seenIds.add(id);
   const p = join(ROOT, 'testgame', 'versions', id, `${id}.json`);
   if (!existsSync(p)) return [];
-  const json = JSON.parse(readFileSync(p, 'utf8'));
+  const json = JSON.parse(readFileSync(p, 'utf8').replace(/^\uFEFF/, ''));
   const parent = json.inheritsFrom ? chainLibs(json.inheritsFrom, seenIds) : [];
   return [...(json.libraries || []), ...parent];
 }
 function libCp() {
   const jsonPath = findInstanceJson();
-  const json = JSON.parse(readFileSync(jsonPath, 'utf8'));
+  const json = JSON.parse(readFileSync(jsonPath, 'utf8').replace(/^\uFEFF/, ''));
   const out = [named];
   const seen = new Set();
   const libs = [
