@@ -13,7 +13,7 @@
 //   node scripts/build-srg-legacy.mjs --mc 1.11.2 --forge 13.20.1.2588 \
 //        --instance 1.11.2-forge1.11.2-13.20.1.2588 --shim shim1122 --overlay forge102,forge111
 import { execFileSync } from 'node:child_process';
-import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, unlinkSync, writeFileSync } from 'node:fs';
+import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, unlinkSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 
 const ROOT = resolve(import.meta.dirname, '..');
@@ -58,22 +58,47 @@ function libsOf(verId) {
 
 const cp = [srgJar, srgForgeJar, ...libsOf(INSTANCE)].join(';');
 
-// 兜底（2026-11-01）：1.7.10~1.11.2 这批老实例的 json 里不一定写了 log4j（ProbeInstall 会按需裁剪），
-// 但 dev/mcver/core/Log.java 里 import 了 org.apache.logging.log4j。classpath 里没有就补一份最新的。
-function withLog4j(cpStr) {
-  if (/log4j/i.test(cpStr)) return cpStr;
-  const base = join(GAME, 'libraries', 'org', 'apache', 'logging', 'log4j', 'log4j-api');
-  if (!existsSync(base)) return cpStr;
-  const jars = [];
-  for (const v of readdirSync(base)) {
-    const j = join(base, v, `log4j-api-${v}.jar`);
-    if (existsSync(j)) jars.push(j);
-  }
-  if (!jars.length) return cpStr;
-  jars.sort();
-  return cpStr + ';' + jars[jars.length - 1];
+/**
+ * 兜底（2026-11-01）：1.7.10~1.11.2 这批老实例是 ProbeInstall 现装的，json 里 / 磁盘上会缺几样
+ * 编译必需的东西（换机器重放时踩出来的）：
+ *   - log4j：dev/mcver/core/Log.java 要 org.apache.logging.log4j
+ *   - lwjgl2：1.8.9~1.11.2 的 McVerClient 用 org.lwjgl.input，而老 json 里的 lwjgl 没被下载
+ * 这里按**实际路径**去 libraries 里扫，缺什么补什么（不能靠 cp 字符串里有没有 "log4j" 字样判断，
+ * 之前就是被别的带 log4j 的路径骗过去了）。
+ */
+function withExtraLibs(cpStr) {
+  const have = new Set(cpStr.split(';').filter(Boolean));
+  const picks = [];
+  const push = (p) => { if (existsSync(p) && !have.has(p) && !picks.includes(p)) picks.push(p); };
+
+  const pickVersioned = (base, pattern) => {
+    if (!existsSync(base)) return;
+    const hits = [];
+    for (const v of readdirSync(base)) {
+      const p = join(base, v, pattern(v));
+      if (existsSync(p)) hits.push(p);
+    }
+    // 版本目录名排序不可靠，按文件 mtime 取最新的一份
+    hits.sort((a, b) => statSync(a).mtimeMs - statSync(b).mtimeMs);
+    if (hits.length) push(hits[hits.length - 1]);
+  };
+
+  // log4j（1.7.10 用 2.0-beta9；1.8.9+ 也都有）
+  const l4j = join(GAME, 'libraries', 'org', 'apache', 'logging', 'log4j');
+  pickVersioned(join(l4j, 'log4j-api'), (v) => `log4j-api-${v}.jar`);
+  pickVersioned(join(l4j, 'log4j-core'), (v) => `log4j-core-${v}.jar`);
+
+  // guava（1.8.9~1.11.2 的 bridge 里用到 ListenableFuture）
+  pickVersioned(join(GAME, 'libraries', 'com', 'google', 'guava', 'guava'), (v) => `guava-${v}.jar`);
+
+  // lwjgl 2.x（org.lwjgl.input / Keyboard / Mouse）
+  const lw = join(GAME, 'libraries', 'org', 'lwjgl', 'lwjgl');
+  pickVersioned(join(lw, 'lwjgl'), (v) => `lwjgl-${v}.jar`);
+  pickVersioned(join(lw, 'lwjgl_util'), (v) => `lwjgl_util-${v}.jar`);
+
+  return picks.length ? cpStr + ';' + picks.join(';') : cpStr;
 }
-const cpFull = withLog4j(cp);
+const cpFull = withExtraLibs(cp);
 
 const W = join(MODX, 'build', `forge-${MC}`);
 rmSync(W, { recursive: true, force: true });

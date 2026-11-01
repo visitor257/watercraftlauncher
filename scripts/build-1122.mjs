@@ -11,7 +11,7 @@ const ROOT = resolve(import.meta.dirname, '..');
 const MOD = join(ROOT, 'mod');
 const LEG = join(ROOT, 'modx', 'legacy');
 const W = join(ROOT, 'modx', 'build-1.12.2');
-const JDK = 'D:\\Program Files\\Java\\jdk-21.0.7\\bin';
+const JDK = 'D:\\Program Files\\Java\\jdk-21\\bin';
 
 const named = join(LEG, 'client-1.12.2-named.jar');
 const yarnTiny = join(LEG, 'work', 'yarn', 'mappings', 'mappings.tiny');
@@ -91,13 +91,20 @@ function libCp() {
     if (existsSync(p)) out.push(p);
   }
   for (const rel of [
-    'net/fabricmc/fabric-loader/0.20.1/fabric-loader-0.20.1.jar',
     'org/lwjgl/lwjgl/lwjgl/2.9.4+legacyfabric.17/lwjgl-2.9.4+legacyfabric.17.jar',
     'org/lwjgl/lwjgl/lwjgl_util/2.9.4+legacyfabric.17/lwjgl_util-2.9.4+legacyfabric.17.jar',
     'net/legacyfabric/intermediary/1.12.2/intermediary-1.12.2.jar',
   ]) {
     const p = join(ROOT, 'testgame', 'libraries', rel);
     if (existsSync(p)) out.push(p);
+  }
+  // fabric-loader 的版本号不要写死（换机器可能是 0.15.9 / 0.20.1 …）：直接扫一遍 libraries
+  const loaderBase = join(ROOT, 'testgame', 'libraries', 'net', 'fabricmc', 'fabric-loader');
+  if (existsSync(loaderBase)) {
+    for (const v of readdirSync(loaderBase)) {
+      const p = join(loaderBase, v, `fabric-loader-${v}.jar`);
+      if (existsSync(p) && !out.includes(p)) out.push(p);
+    }
   }
   return out.join(';');
 }

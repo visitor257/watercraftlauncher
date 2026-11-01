@@ -19,7 +19,7 @@ const MC = '1.7.10';
 const FORGE = '10.13.4.1614';
 const INSTANCE = `${MC}-Forge${FORGE}-${MC}`;
 const W = join(MODX, 'build', `forge-${MC}`);
-const JAVA_HOME = process.env.JAVA_HOME || 'D:/Program Files/Java/jdk-21.0.7';
+const JAVA_HOME = process.env.JAVA_HOME || 'D:/Program Files/Java/jdk-21';
 const javac = join(JAVA_HOME, 'bin', 'javac.exe');
 const jarExe = join(JAVA_HOME, 'bin', 'jar.exe');
 
@@ -45,6 +45,47 @@ function libsOf(verId) {
 }
 
 const cp = [srgJar, srgForgeJar, ...libsOf(INSTANCE)].join(';');
+
+// 兜底（2026-11-01）：换机器重放时老实例缺 log4j（core/Log.java 需要），按实际路径补一份最新的。
+function withLog4j(cpStr) {
+  const have = new Set(cpStr.split(';').filter(Boolean));
+  const picks = [];
+  const base = join(GAME, 'libraries', 'org', 'apache', 'logging', 'log4j');
+  for (const kind of ['log4j-api', 'log4j-core']) {
+    const dir = join(base, kind);
+    if (!existsSync(dir)) continue;
+    const hits = [];
+    for (const v of readdirSync(dir)) {
+      const j = join(dir, v, `${kind}-${v}.jar`);
+      if (existsSync(j)) hits.push(j);
+    }
+    if (hits.length) {
+      hits.sort();
+      const p = hits[hits.length - 1];
+      if (!have.has(p)) picks.push(p);
+    }
+  }
+  return picks.length ? cpStr + ';' + picks.join(';') : cpStr;
+}
+const cpFull = withLog4j(cp);
+
+// 再兜一层 lwjgl2（1.7.10 的 McVerClient 用 org.lwjgl.input；老实例 json 里的 lwjgl 没下载）
+const cpFinal = (() => {
+  const have = new Set(cpFull.split(';').filter(Boolean));
+  const picks = [];
+  const lw = join(GAME, 'libraries', 'org', 'lwjgl', 'lwjgl');
+  for (const kind of ['lwjgl', 'lwjgl_util']) {
+    const dir = join(lw, kind);
+    if (!existsSync(dir)) continue;
+    const hits = [];
+    for (const v of readdirSync(dir)) {
+      const j = join(dir, v, `${kind}-${v}.jar`);
+      if (existsSync(j)) hits.push(j);
+    }
+    if (hits.length) { hits.sort(); const p = hits[hits.length - 1]; if (!have.has(p)) picks.push(p); }
+  }
+  return picks.length ? cpFull + ';' + picks.join(';') : cpFull;
+})();
 
 rmSync(W, { recursive: true, force: true });
 mkdirSync(join(W, 'classes'), { recursive: true });
@@ -92,7 +133,7 @@ execFileSync(javac, [
   '--release', '8',
   '-nowarn',
   '-encoding', 'UTF-8',
-  '-cp', cp,
+  '-cp', cpFinal,
   '-d', join(W, 'classes'),
   ...sources,
 ], { stdio: 'inherit', maxBuffer: 1 << 28 });
