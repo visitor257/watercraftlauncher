@@ -116,13 +116,17 @@ async function uploadVersions(filter) {
     if (done.has(row.file)) { skip++; continue; }
     const gv = row.game_versions.split(/\s+/).filter(Boolean);
     const isBeta = row.loader_dir === 'neoforge' && gv.some((v) => BETA_MC.has(v));
+    // 默认按清单自动判断（beta 加载器 → beta，其余 release）；
+    // 想统一压成 alpha 就加 `--type alpha`（这个项目就是这么发的）
+    const forced = val('--type');
+    const vtype = forced || (isBeta ? 'beta' : 'release');
     const data = {
       name: row.modrinth_name || `${row.loader_dir} ${gv[0]}`,
       version_number: row.jar_version_number,
       changelog: '变更见 https://github.com/visitor257/watercraftlauncher/releases',
       dependencies: [],
       game_versions: gv,
-      version_type: isBeta ? 'beta' : 'release',
+      version_type: vtype,
       loaders: toSlugs(row.modrinth_loaders),
       featured: false,
       project_id: pid,
@@ -177,14 +181,41 @@ async function uploadIcon() {
   console.log(r.ok ? '图标已传' : `传图标失败 HTTP ${r.status}: ${(await bodyText(r)).slice(0, 300)}`);
 }
 
+// 批量改版本通道（release/ beta/ alpha）。Modrinth 用 PATCH /version/{id}，只传要改的字段。
+//   node --use-system-ca scripts/modrinth-publish.mjs --retag release alpha --apply
+async function retag(from, to) {
+  if (!TOKEN && !DRY) throw new Error('改通道需要 token（scope 要含 VERSION_WRITE）');
+  const vs = await listVersions();
+  const hit = vs.filter((v) => v.version_type === from);
+  console.log(`版本共 ${vs.length} 个，其中 ${from} 有 ${hit.length} 个${DRY ? '（演练）' : ''}`);
+  let ok = 0, fail = 0;
+  for (const v of hit) {
+    if (DRY) { console.log(`[演练] ${v.name}  ${from} -> ${to}`); ok++; continue; }
+    const r = await req(`/version/${v.id}`, {
+      method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ version_type: to }),
+    });
+    if (r.ok || r.status === 204) { console.log(`OK   ${v.name}  ${from} -> ${to}`); ok++; }
+    else { console.log(`FAIL ${v.name}  HTTP ${r.status}: ${(await bodyText(r)).slice(0, 200)}`); fail++; }
+    await new Promise((s) => setTimeout(s, 250));
+  }
+  console.log(`\n改完：成功 ${ok}，失败 ${fail}`);
+  if (fail) process.exitCode = 1;
+}
+
 if (has('--list')) {
   for (const r of readManifest()) console.log(`${r.loader_dir.padEnd(9)} ${r.file.padEnd(52)} ${r.modrinth_loaders.padEnd(14)} ${r.game_versions.split(/\s+/).length} 个版本  ${r.modrinth_name}`);
   process.exit(0);
 }
+const ri = argv.indexOf('--retag');
+if (ri >= 0) {
+  const from = argv[ri + 1] || 'release';
+  const to = argv[ri + 2] || 'alpha';
+  await retag(from, to);
+}
 if (has('--create-project')) await createProject();
 if (has('--icon')) await uploadIcon();
 const vi = argv.indexOf('--versions');
-if (vi >= 0 || DRY) {
+if (vi >= 0 || (DRY && ri < 0)) {
   const filter = vi >= 0 && argv[vi + 1] && !argv[vi + 1].startsWith('--') ? argv[vi + 1] : '';
   await uploadVersions(filter);
 }
