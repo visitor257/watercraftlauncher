@@ -17,6 +17,7 @@
 //   ③ `/user` 需要 USER_READ；token 没勾这个 scope 时会回 401 —— 这不代表 token 无效。
 //      想验证 token，看 POST /version 是否返回 400（过了鉴权才到参数校验）。
 import { readFileSync, existsSync } from 'node:fs';
+import { createHash } from 'node:crypto';
 import { join, resolve, basename } from 'node:path';
 
 const ROOT = resolve(import.meta.dirname, '..');
@@ -107,13 +108,30 @@ async function uploadVersions(filter) {
   if (pr.ok) { const pj = await pr.json(); if (pj.id) pid = pj.id; }
   const existing = await listVersions();
   const done = new Set(existing.flatMap((v) => (v.files || []).map((f) => f.filename)));
+  // 文件名 → 已有 version（含它记录的 sha1/sha256），--replace 时用来判断要不要换文件
+  const byFile = new Map();
+  for (const v of existing) for (const f of (v.files || [])) byFile.set(f.filename, { version: v, file: f });
   console.log(`清单 ${rows.length} 个 / 云端已有 ${existing.length} 个 version（${done.size} 个文件）`);
 
-  let ok = 0, skip = 0, fail = 0;
+  let ok = 0, skip = 0, fail = 0, replaced = 0;
   for (const row of rows) {
     const path = join(PUB, 'jars', row.loader_dir, row.file);
     if (!existsSync(path)) { console.log(`   缺文件 ${row.file}`); fail++; continue; }
-    if (done.has(row.file)) { skip++; continue; }
+    // --replace：文件名已存在但内容变了（sha256 不同）→ 删掉旧 version 再建新的。
+    // Modrinth 不允许替换 version 里的文件，只能“删旧建新”。
+    if (done.has(row.file)) {
+      const prev = byFile.get(row.file);
+      // Modrinth 的文件哈希是 sha1 + sha512（不一定有 sha256），所以按 sha1 比
+      const localSha1 = createHash('sha1').update(readFileSync(path)).digest('hex');
+      const remoteSha1 = prev && prev.file && prev.file.hashes ? prev.file.hashes.sha1 : null;
+      const same = localSha1 && remoteSha1 && localSha1 === remoteSha1;
+      if (!has('--replace') || same) { skip++; continue; }
+      if (DRY) { console.log(`[演练] 会替换 ${row.file}（内容变了）`); replaced++; continue; }
+      const del = await req('/version/' + prev.version.id, { method: 'DELETE' });
+      if (!(del.ok || del.status === 204)) { console.log(`FAIL 删旧 ${row.file} HTTP ${del.status}`); fail++; continue; }
+      console.log(`替换 ${row.file}（旧 version 已删）`);
+      replaced++;
+    }
     const gv = row.game_versions.split(/\s+/).filter(Boolean);
     const isBeta = row.loader_dir === 'neoforge' && gv.some((v) => BETA_MC.has(v));
     // 默认按清单自动判断（beta 加载器 → beta，其余 release）；

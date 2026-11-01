@@ -19,7 +19,7 @@ import { join, resolve } from 'node:path';
 const ROOT = resolve(import.meta.dirname, '..');
 const GAME = join(ROOT, 'testgame');
 const MODX = join(ROOT, 'modx');
-const JAVA_HOME = process.env.JAVA_HOME || 'D:/Program Files/Java/jdk-21.0.7';
+const JAVA_HOME = process.env.JAVA_HOME || 'D:/Program Files/Java/jdk-21';
 const javac = join(JAVA_HOME, 'bin', 'javac.exe');
 const jarExe = join(JAVA_HOME, 'bin', 'jar.exe');
 
@@ -57,6 +57,23 @@ function libsOf(verId) {
 }
 
 const cp = [srgJar, srgForgeJar, ...libsOf(INSTANCE)].join(';');
+
+// 兜底（2026-11-01）：1.7.10~1.11.2 这批老实例的 json 里不一定写了 log4j（ProbeInstall 会按需裁剪），
+// 但 dev/mcver/core/Log.java 里 import 了 org.apache.logging.log4j。classpath 里没有就补一份最新的。
+function withLog4j(cpStr) {
+  if (/log4j/i.test(cpStr)) return cpStr;
+  const base = join(GAME, 'libraries', 'org', 'apache', 'logging', 'log4j', 'log4j-api');
+  if (!existsSync(base)) return cpStr;
+  const jars = [];
+  for (const v of readdirSync(base)) {
+    const j = join(base, v, `log4j-api-${v}.jar`);
+    if (existsSync(j)) jars.push(j);
+  }
+  if (!jars.length) return cpStr;
+  jars.sort();
+  return cpStr + ';' + jars[jars.length - 1];
+}
+const cpFull = withLog4j(cp);
 
 const W = join(MODX, 'build', `forge-${MC}`);
 rmSync(W, { recursive: true, force: true });
@@ -104,7 +121,7 @@ execFileSync(javac, [
   '--release', '8',
   '-nowarn',
   '-encoding', 'UTF-8',
-  '-cp', cp,
+  '-cp', cpFull,
   '-d', join(W, 'classes'),
   ...sources,
 ], { stdio: 'inherit', maxBuffer: 1 << 28 });
