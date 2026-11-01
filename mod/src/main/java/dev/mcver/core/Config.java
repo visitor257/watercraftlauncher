@@ -47,6 +47,20 @@ public final class Config {
     public static final List<Account> accounts = new ArrayList<>();
     public static int accountIndex = -1;
 
+    /**
+     * 有没有一个「同 UUID 的微软正版账号」——离线账号能不能用的唯一判据。
+     *
+     * <p>合规要求：离线启动只允许复用**已经验证过正版身份**的账号（和官方启动器的
+     * "Play offline" 一样）。所以离线档案必须能对上一条 MSA 记录，否则拒绝启动。
+     */
+    public static boolean hasMsaFor(String uuid) {
+        if (uuid == null || uuid.isEmpty()) return false;
+        for (Account a : accounts) {
+            if (a.isMsa() && uuid.equalsIgnoreCase(a.uuid)) return true;
+        }
+        return false;
+    }
+
     /** 上次用过的游戏目录。 */
     public static String lastDir = "";
 

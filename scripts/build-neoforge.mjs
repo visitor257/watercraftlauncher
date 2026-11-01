@@ -376,6 +376,18 @@ const TARGETS = {
 };
 
 // 产物名里的 mc<覆盖范围>一律由 mcRange 算（2026-10-31 起），不再手写：
+// 额外 target（把更多 MC 补丁版本补齐）从 scripts/forge-extra-targets.json 合并进来，
+// 免得把三四十份几乎一样的配置手抄进这个文件。同名 key 以本文件里显式写的为准。
+// 注意：必须在下面「按 mcRange 算 jarName」之前合并，否则额外 target 的 jarName 是 undefined
+// （2026-10-31 踩过：产物就叫 undefined.jar）。
+{
+  const extraPath = join(ROOT, 'scripts', 'forge-extra-targets.json');
+  if (existsSync(extraPath)) {
+    const extra = JSON.parse(readFileSync(extraPath, 'utf8'));
+    for (const [k, v] of Object.entries(extra)) if (!TARGETS[k]) TARGETS[k] = v;
+  }
+}
+
 //   [1.21.3,1.21.5) → mc1.21.3-1.21.4 ；[1.20.1,1.20.2) → mc1.20.1
 for (const [key, t] of Object.entries(TARGETS)) {
   if (!t.mcRange) continue;
@@ -604,6 +616,11 @@ rmSync(stages, { recursive: true, force: true });
 mkdirSync(stages, { recursive: true });
 cpSync(classes, stages, { recursive: true });
 for (const r of T.resources) cpSync(join(ROOT, r), stages, { recursive: true });
+
+// 剔掉共享资源里的 fabric.mod.json：它是给 Fabric 用的模板（`${version}` / `${minecraft_dep}` 原样），
+// Forge/NeoForge 不读它，但丢进 Fabric 实例会被当成 Fabric mod 加载 → 报奇怪的错。
+// 2026-11-01 起所有 Forge/NeoForge 产物都不带这份文件。
+rmSync(join(stages, 'fabric.mod.json'), { force: true });
 
 const tomlPath = join(stages, T.modsToml);
 mkdirSync(join(stages, 'META-INF'), { recursive: true });

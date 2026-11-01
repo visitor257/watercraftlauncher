@@ -1254,27 +1254,35 @@ public final class LoaderInstaller {
     // ---------------------------------------------------------------- OptiFine
 
     /**
-     * OptiFine 的安装器是 GUI 程序，但 optifine.Installer.doInstall(File) 静态方法能直接调，
-     * 全程不弹窗。ofId 形如 "HD_U/I6"。
+     * 用**本地的** OptiFine 安装包安装（合规要求，2026-11-01 改）。
+     *
+     * <p>以前是直接打 `bmclapi2.bangbang93.com/optifine/...` 拉安装包 —— 那绕开了 optifine.net
+     * 自己的下载页（它的授权要求从官网获取），属于会被版权方质疑的做法。
+     * 现在只接受用户自己从 optifine.net 下载后填进来的**本地路径**。
+     *
+     * <p>OptiFine 的安装器是 GUI 程序，但 {@code optifine.Installer.doInstall(File)} 静态方法能直接调，
+     * 全程不弹窗；而且它只能在 Java 8 上跑，所以还是要走 {@link #invokeOptifineInstaller} 另起进程。
+     *
+     * @param ofJarPath OptiFine 安装包的本地路径（形如 {@code OptiFine_1.20.1_HD_U_I6.jar}）
      */
-    public static String installOptifine(Path gameDir, String mc, String ofId,
+    public static String installOptifine(Path gameDir, String mc, String ofJarPath,
                                          Consumer<String> log) throws Exception {
         ensureLauncherProfiles(gameDir);
 
-        // ofId 为 null 表示「用推荐版」：下载页没指定版本时走这里，不能直接 NPE。
-        if (ofId == null || ofId.trim().isEmpty()) {
-            log.accept("查询 OptiFine 版本…");
-            java.util.List<LoaderVersions.Lv> list = LoaderVersions.optifineList(mc);
-            if (list.isEmpty()) throw new IOException("OptiFine 没有 " + mc + " 的版本");
-            ofId = list.get(0).id();
-            log.accept("选用 OptiFine " + ofId);
+        if (ofJarPath == null || ofJarPath.trim().isEmpty()) {
+            throw new IOException("请先填 OptiFine 安装包的本地路径（去 optifine.net 下载后填进来）");
         }
-
-        String safe = ofId.replace('/', '_');
-        Path jar = gameDir.resolve(".mcver-tmp").resolve("OptiFine_" + mc + "_" + safe + ".jar");
-        Files.createDirectories(jar.getParent());
-        log.accept("下载 OptiFine " + mc + " " + ofId);
-        download("https://bmclapi2.bangbang93.com/optifine/" + mc + "/" + ofId, jar);
+        Path jar;
+        try {
+            jar = Paths.get(ofJarPath.trim());
+        } catch (Exception e) {
+            throw new IOException("这个路径不合法: " + ofJarPath);
+        }
+        if (!Files.isRegularFile(jar)) throw new IOException("找不到这个文件: " + jar);
+        if (!jar.getFileName().toString().toLowerCase(Locale.ROOT).endsWith(".jar")) {
+            throw new IOException("这不是 .jar 文件: " + jar.getFileName());
+        }
+        log.accept("使用本地 OptiFine 安装包: " + jar.getFileName());
 
         log.accept("静默运行 OptiFine 安装器…");
         invokeOptifineInstaller(jar, gameDir, mc, log);

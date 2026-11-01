@@ -373,3 +373,14 @@ node scripts\rebuild-all.mjs         # 4) 41 步，约 10 分钟
 
 > 所以 clone 下来直接编译是**编不动**的 —— 先看 `HANDOVER.md` 第 1 节（换机器两条路）
 > 和第 5 节（哪些目录不在 git 里、缺了会怎样）。
+
+
+---
+
+## 版权与合规声明
+
+- 本项目**不是** Minecraft 官方产品，与 Mojang Studios / Microsoft **没有任何关联，也未获其认可**。
+- **OptiFine**：不再由本启动器代为下载。请自行到 <https://optifine.net> 下载安装包，再把**本地 jar 路径**填进下载页（这是 OptiFine 的授权要求）。
+- **账号**：只支持微软正版登录。「离线副本」只能从**已经成功登录过的正版账号**派生（同名同 UUID），用于断网时继续游戏 —— 和官方启动器的 *Play offline* 一个语义。本项目不提供、也不支持绕过购买验证的用法。
+- **游戏文件**：所有 Minecraft 版本与资源都从 Mojang 官方源（`piston-meta.mojang.com`）下载；本仓库与发布资产**不含任何 Minecraft 游戏文件或素材**。
+- 代码以 MIT 发布。Minecraft 是 Mojang Studios 的商标。

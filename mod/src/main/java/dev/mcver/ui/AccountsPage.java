@@ -16,7 +16,6 @@ import java.util.List;
 /** 「账号」页：离线账号 + 微软正版登录（设备码流程）。 */
 public class AccountsPage extends Page {
 
-    private TextFieldWidget nameField;
     private String selectedName;   // 用名字标记选中，避免重建后引用错位
     private int page;
     private String status = "";
@@ -103,13 +102,9 @@ public class AccountsPage extends Page {
             return;
         }
 
-        // ---- 离线：名字 + 按钮
-        nameField = Field.of(this.tr(), x + 28, nameRowY(), 108, 16, "玩家名");
-        nameField.setMaxLength(16);
-        nameField.setText(suggestName());
-        add(nameField);
-
-        add(Btn.builder(Txt.of("离线登录"), b -> addOffline())
+        // ---- 离线（合规，2026-11-01 改）：只能从**已登录的正版账号**派生离线副本。
+        // 原来的「自定名字 + 离线登录」等于给没买游戏的人开入口，已移除。
+        add(Btn.builder(Txt.of("离线副本"), b -> addOfflineCopy())
                 .dimensions(x + 140, nameRowY(), 64, 16).build());
 
         add(Btn.builder(Txt.of("微软登录"), b -> startMicrosoft())
@@ -138,12 +133,6 @@ public class AccountsPage extends Page {
         }).dimensions(x + w - 18, btnRowY(), 18, 18).build());
     }
 
-    private String suggestName() {
-        Account a = Config.account();
-        if (a != null && !a.isMsa()) return a.name;
-        return MinecraftClient.getInstance().getSession().getUsername();
-    }
-
     private Account findSelected() {
         for (Account a : Config.accounts) {
             if (a.name.equals(selectedName)) return a;
@@ -153,23 +142,26 @@ public class AccountsPage extends Page {
 
     // ================================================================ 动作
 
-    private void addOffline() {
-        String name = nameField == null ? "" : nameField.getText().trim();
-        if (name.isEmpty()) {
-            status = "先填个玩家名";
+    /**
+     * 「离线副本」：只能从**已登录的微软账号**派生（同名 + 同 UUID）。
+     *
+     * <p>合规要求（2026-11-01）：不再支持自定名字新建离线账号 —— 那等于给没买游戏的人开入口。
+     * 现在的语义和官方启动器的 "Play offline" 一致：先把正版账号登录一次，之后断网也能用。
+     */
+    private void addOfflineCopy() {
+        Account sel = findSelected();
+        if (sel == null || !sel.isMsa()) {
+            status = "先在上面选一个已经登录过的正版账号，再点「离线副本」";
             statusColor = MainScreen.C_ERR;
+            rebuild();
             return;
         }
-        if (!name.matches("[A-Za-z0-9_]{2,16}")) {
-            status = "名字只能用字母数字下划线（2-16 位）";
-            statusColor = MainScreen.C_ERR;
-            return;
-        }
-        Account a = Account.offline(name);
-        Config.accounts.removeIf(x -> x.name.equalsIgnoreCase(a.name) && !x.isMsa());
+        Account a = Account.offlineOf(sel);
+        Config.accounts.removeIf(x -> !x.isMsa() && x.uuid.equalsIgnoreCase(a.uuid));
+        Config.accounts.add(a);
         Config.setAccount(a);
         selectedName = a.name;
-        status = "已添加离线账号 " + name;
+        status = "已添加离线副本 " + a.name + "（断网时可用；需要那个正版账号登录过一次）";
         statusColor = MainScreen.C_OK;
         host.rebuild();
     }
@@ -251,7 +243,7 @@ public class AccountsPage extends Page {
 
         if (Config.accounts.isEmpty() && !msWaiting) {
             text(ctx, "还没有账号", x, listTop() + 4, MainScreen.C_DIM);
-            text(ctx, "底部填名字点「离线登录」，或者用微软账号登录", x, listTop() + 16, MainScreen.C_FAINT);
+            text(ctx, "点下面「微软登录」用正版账号登录；断网时再用「离线副本」", x, listTop() + 16, MainScreen.C_FAINT);
         }
         if (Config.accounts.size() > listRows()) {
             // 分页指示画在两个箭头中间，不再盖住列表第一行
@@ -276,7 +268,7 @@ public class AccountsPage extends Page {
             return;
         }
 
-        text(ctx, "名字", x, nameRowY() + 4, MainScreen.C_DIM);
+        text(ctx, "离线副本只复用已登录的正版账号（断网时用）", x, nameRowY() + 4, MainScreen.C_DIM);
 
         if (!status.isEmpty()) {
             text(ctx, trim(status, w), x, statusY(), statusColor);

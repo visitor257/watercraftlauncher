@@ -70,6 +70,11 @@ public class DownloadPage extends Page {
     /** 这次重建是从搜索框的输入触发的 —— 建完要把焦点还回去（见 initList）。 */
     private boolean focusSearchAfterRebuild;
     private TextFieldWidget nameField;
+    /**
+     * 本地 OptiFine 安装包的路径输入框（合规改动：不再从镜像下载，只接受用户自己从 optifine.net
+     * 下载的 jar）。只在「光影加载器 = OptiFine」时出现。
+     */
+    private TextFieldWidget ofJarField;
 
     /** 终止下载的二次确认状态。 */
     private boolean confirmStop;
@@ -291,7 +296,7 @@ public class DownloadPage extends Page {
         status = "";
         compError = null;
         nameEdited = false;
-        name = VersionMeta.suggest(v.id(), loader, modId(), shader, shaderId());
+        name = VersionMeta.suggest(v.id(), loader, modId(), shader, shaderLabelForName());
 
         if (autoLoader != null) {
             try { loader = LoaderInstaller.Kind.valueOf(autoLoader.toUpperCase(java.util.Locale.ROOT)); }
@@ -340,7 +345,7 @@ public class DownloadPage extends Page {
                 modSel = 0;
                 modPage = 0;
                 modList = dev.mcver.core.Jdk.emptyList();
-                if (!nameEdited) name = VersionMeta.suggest(picked.id(), loader, null, shader, shaderId());
+                if (!nameEdited) name = VersionMeta.suggest(picked.id(), loader, null, shader, shaderLabelForName());
                 status = "";
                 // 先查规则表：这个组合根本不存在就直接说，不必等网络查询
                 String why = picked == null ? null : LoaderSupport.reason(k, picked.id());
@@ -377,6 +382,12 @@ public class DownloadPage extends Page {
         }
 
         // 版本列表（模组加载器 / 光影，二选一显示）
+        // OptiFine 例外：合规改动后它不需要版本列表，改成填「本地安装包路径」。
+        if (focusShader && shader == LoaderInstaller.Shader.OPTIFINE) {
+            ofJarField = Field.of(this.tr(), x, yListRow0(), w - 4, 16, "OptiFine 安装包路径（先在 optifine.net 下载）");
+            ofJarField.setMaxLength(260);
+            add(ofJarField);
+        }
         List<LoaderVersions.Lv> list = focusList();
         int pagesN = Math.max(1, (list.size() + 2) / 3);
         add(Btn.builder(Txt.of("◀"), b -> {
@@ -397,7 +408,7 @@ public class DownloadPage extends Page {
                     b -> {
                         if (focusShader) shaderSel = idx; else modSel = idx;
                         if (!nameEdited) {
-                            name = VersionMeta.suggest(picked.id(), loader, modId(), shader, shaderId());
+                            name = VersionMeta.suggest(picked.id(), loader, modId(), shader, shaderLabelForName());
                             if (nameField != null) nameField.setText(name);
                         }
                         rebuild();
@@ -427,7 +438,8 @@ public class DownloadPage extends Page {
 
     private List<LoaderVersions.Lv> focusList() {
         if (focusShader) {
-            if (shader == LoaderInstaller.Shader.OPTIFINE) return shaderList;
+            // OptiFine 改成「填本地安装包路径」后就没有版本列表了（合规改动）
+            if (shader == LoaderInstaller.Shader.OPTIFINE) return dev.mcver.core.Jdk.emptyList();
             if (shader == LoaderInstaller.Shader.IRIS) return shaderList;
             return dev.mcver.core.Jdk.emptyList();
         }
@@ -445,7 +457,26 @@ public class DownloadPage extends Page {
     }
 
     private String shaderId() {
+        // OptiFine：返回用户填的**本地安装包路径**，不再是版本号（合规改动）
+        if (shader == LoaderInstaller.Shader.OPTIFINE) {
+            return ofJarField == null ? "" : ofJarField.getText().trim();
+        }
         return shaderList.isEmpty() || shaderSel >= shaderList.size() ? null : shaderList.get(shaderSel).id();
+    }
+
+    /**
+     * 给「版本名建议」用的短标签：OptiFine 取本地 jar 的文件名（去掉路径、去掉 .jar）。
+     * {@link #shaderId()} 返回的是完整路径，直接拼进版本名会带上 `\` 和 `:`，名字校验过不了。
+     */
+    private String shaderLabelForName() {
+        String p = shaderId();
+        if (shader != LoaderInstaller.Shader.OPTIFINE) return p;
+        if (p == null || p.trim().isEmpty()) return null;
+        String base = p.trim();
+        int i = Math.max(base.lastIndexOf('/'), base.lastIndexOf('\\'));
+        if (i >= 0) base = base.substring(i + 1);
+        if (base.toLowerCase(java.util.Locale.ROOT).endsWith(".jar")) base = base.substring(0, base.length() - 4);
+        return base.replaceAll("[^A-Za-z0-9._+\\-]", "_");
     }
 
     /** 加载当前聚焦的组件版本列表。 */
@@ -469,7 +500,9 @@ public class DownloadPage extends Page {
             try {
                 List<LoaderVersions.Lv> list;
                 if (wantShader && s == LoaderInstaller.Shader.OPTIFINE) {
-                    list = LoaderVersions.optifineList(mc);
+                    // 合规改动：OptiFine 不再查版本表（原来打 BMCLAPI 的 /optifine 接口），
+                    // 改成让用户填本地安装包路径，所以这里直接返回空列表。
+                    list = new ArrayList<>();
                 } else if (wantShader && s == LoaderInstaller.Shader.IRIS) {
                     list = new ArrayList<>();
                     for (Modrinth.Ver v : Modrinth.versions("iris", mc, "fabric")) {
@@ -536,6 +569,22 @@ public class DownloadPage extends Page {
             statusColor = MainScreen.C_ERR;
             rebuild();
             return;
+        }
+        // OptiFine：合规改动后必须填本地安装包路径（不再从镜像下载）
+        if (shader == LoaderInstaller.Shader.OPTIFINE) {
+            String p = shaderId();
+            if (p == null || p.trim().isEmpty()) {
+                status = "先把 OptiFine 安装包的路径填上（去 optifine.net 下载，填本地 jar 路径）";
+                statusColor = MainScreen.C_ERR;
+                rebuild();
+                return;
+            }
+            if (!p.trim().toLowerCase(java.util.Locale.ROOT).endsWith(".jar")) {
+                status = "这个路径看起来不是 .jar 文件";
+                statusColor = MainScreen.C_ERR;
+                rebuild();
+                return;
+            }
         }
         String nm = nameField == null ? name : nameField.getText();
         if (!nm.trim().isEmpty() && !VersionMeta.validName(nm)) {
@@ -684,6 +733,10 @@ public class DownloadPage extends Page {
             text(ctx, "加载版本列表…", x, yListRow0() + 2, MainScreen.C_WARN);
         } else if (compError != null) {
             text(ctx, "✖ " + trim(compError, w), x, yListRow0() + 2, MainScreen.C_ERR);
+        } else if (focusShader && shader == LoaderInstaller.Shader.OPTIFINE) {
+            // 合规改动：不给下载链接，只提示去哪拿（OptiFine 授权要求从官网下载）
+            text(ctx, "先去 optifine.net 下载安装包，把本地 jar 路径填在下面输入框", x, yListRow0() + 20, MainScreen.C_FAINT);
+            text(ctx, "本启动器不再代为下载（那会绕开 OptiFine 自己的下载页）", x, yListRow0() + 32, MainScreen.C_FAINT);
         } else if (focusList().isEmpty()) {
             String hint = focusShader
                     ? (shader == LoaderInstaller.Shader.NONE ? "没选光影加载器" : "没有可用的光影版本")

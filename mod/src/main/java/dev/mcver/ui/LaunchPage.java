@@ -445,6 +445,15 @@ public class LaunchPage extends Page {
         // 注意：Session 的包名跨版本变过（1.20.1 是 client.util，1.21 起是 client.session），
         // 所以这里只写 var，不 import 具体类；用到的三个方法在两个版本里签名一致。
         Account acc = Config.account();
+        // 合规（2026-11-01）：离线账号只有在能对上一条**已登录过的微软正版账号**时才允许启动。
+        // 「随便起个名字离线进游戏」这条路已经彻底关掉了（官方启动器的 Play offline 也是这个语义）。
+        if (acc != null && !acc.isMsa() && !Config.hasMsaFor(acc.uuid)) {
+            busy = false;
+            status = "这个离线账号没有对应的正版登录记录，已停用（先用微软账号登录一次）";
+            statusColor = MainScreen.C_ERR;
+            McVerMod.LOGGER.warn("mcver: 拒绝启动 —— 离线账号 {} 没有对应的 MSA 记录", acc.name);
+            return;
+        }
         final String player;
         final String uuid;
         final String token;
